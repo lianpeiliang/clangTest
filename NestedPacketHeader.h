@@ -22,5 +22,6 @@ struct NestedPacketHeader
 
 // 当前目标环境下：PacketAddress 大小 4 字节，NestedPacketHeader 大小 10 字节。
 // 两个结构体均按 1 字节对齐；内部字段的偏移相对于各自所属结构体的起点。
-// 当前界面将 address 显示为一个字段，不会展开其内部成员。
+// 在树形界面展开 address，可查看 source 和 destination。
+// destination 的相对偏移为 2 字节，相对最外层结构体的绝对偏移为 6 字节。
 #endif

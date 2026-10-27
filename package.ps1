@@ -103,6 +103,7 @@ try {
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'tests') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $ClangRoot 'share/licenses') -Destination (Join-Path $licenseDir 'msys2') -Recurse
     Copy-Item -LiteralPath (Join-Path $QtRoot 'Licenses') -Destination (Join-Path $licenseDir 'qt') -Recurse
 
@@ -115,7 +116,8 @@ clangTest Windows x64 便携版
 3. 点击“打开头文件…”选择 SimpleMsgHeader.h 或 MinimalMsgHeader.h 对比。
 4. 修改并保存头文件后，点击“重新解析”。结构体名称输入框可指定查找的名称。
 5. 打开 samples/PacketHeader.h，将结构体名称改为 PacketHeader，验证其他名称的解析。
-6. 打开 samples/NestedPacketHeader.h，名称设为 NestedPacketHeader，查看嵌套成员；改为 PacketAddress 可单独查看内部字段。
+6. 打开 samples/NestedPacketHeader.h，名称设为 NestedPacketHeader，展开 address 查看内部字段；也可使用“全部展开 / 全部折叠”。
+7. 相对偏移表示相对直接所属结构体的位置，绝对偏移表示相对最外层结构体的位置。
 
 自带 Qt、libclang、相关 DLL 和 C/C++ 头文件，无需安装 Qt 或 Clang。
 请保留整个文件夹的目录结构。解析目标为 Windows x64 / MinGW，使用 C++11。

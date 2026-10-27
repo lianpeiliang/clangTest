@@ -6,7 +6,7 @@
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
-class QTableWidget;
+class QTreeWidget;
 
 // 这一版使用普通 Qt Widgets 控件，解析代码放在 headerparser.cpp 中。
 class MainWindow : public QWidget
@@ -21,7 +21,7 @@ private:
     QLineEdit *m_structName;
     QLabel *m_structureName;
     QLabel *m_summary;
-    QTableWidget *m_fields;
+    QTreeWidget *m_fields;
     QLabel *m_status;
     QPlainTextEdit *m_diagnostics;
 };

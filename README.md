@@ -8,13 +8,14 @@
 | --- | --- |
 | `clangTest.pro` | Qt 项目配置及 libclang 链接配置 |
 | `main.cpp` | 创建 QApplication，启动窗口 |
-| `mainwindow.h / .cpp` | 显示结构体名称、字段表格及解析诊断 |
+| `mainwindow.h / .cpp` | 使用 QTreeWidget 显示结构体成员树及解析诊断 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
 | `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
 | `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
 | `PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
 | `NestedPacketHeader.h` | 嵌套样例，`NestedPacketHeader` 包含 `PacketAddress` 类型的成员，使用 1 字节打包 |
+| `tests/nested-tests.pro` | 嵌套解析、偏移累计和树形界面的回归检查 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -51,11 +52,12 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 ## 窗口操作
 
 - 启动时默认解析 `MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
-- 表格逐行显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。
+- 树形控件显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。根节点为所选结构体，成员按层级显示，可点击箭头展开、折叠，或使用 **全部展开 / 全部折叠**。
+- 同时显示相对直接所属结构体和相对最外层结构体的偏移，均提供字节和 bit 两种表示；位域的字节偏移保留不足一个字节的 bit 部分。
 - 修改并保存头文件后，点击 **重新解析** 更新结果。
 - 点击 **打开头文件…** 选择其他文件，也可直接修改路径并按回车。
 - **结构体名称** 输入框默认填入 `MsgHeader`，可修改为其他名称，按回车或点击 **重新解析** 生效。程序按名称精确查找主文件中的 struct 定义，不查找 `#include` 引入的结构体；名称不能为空，输入两端的空白会被忽略。
-- 解析失败时清空旧表格，并在下方显示错误原因；修正文件后可再次解析。
+- 解析失败时清空旧树，并在下方显示错误原因；修正文件后可再次解析。
 
 libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗口显示。解析资源释放后，界面仍可安全使用这些普通 Qt 数据。
 
@@ -63,7 +65,9 @@ libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗
 
 验证其他结构体名称时，打开 `PacketHeader.h`，将 **结构体名称** 改为 `PacketHeader`，按回车或点击 **重新解析**。预期显示 `sequence`、`payloadLength`、`flags` 三个字段，偏移分别为 0、4、6 字节，总大小 7 字节，对齐 1 字节。
 
-验证嵌套结构体时，打开 `NestedPacketHeader.h`，将 **结构体名称** 设为 `NestedPacketHeader`。预期显示 `sequence`、`address`、`payloadLength` 三个字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。当前界面将 `address` 显示为一个大小为 4 字节的字段，不展开其内部成员；可将名称改为 `PacketAddress`，单独查看 `source`、`destination` 两个字段，其偏移分别为 0、2 字节。
+验证嵌套结构体时，打开 `NestedPacketHeader.h`，将 **结构体名称** 设为 `NestedPacketHeader`。预期显示 `sequence`、`address`、`payloadLength` 三个直接字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。展开 `address` 可看到 `source`、`destination`：相对偏移分别为 0、2 字节，绝对偏移分别为 4、6 字节。也可将名称改为 `PacketAddress` 单独解析。
+
+按值嵌套的记录类型会递归展开，包括经过 `typedef` / `using` 别名的类型；嵌套类型可定义在被包含的头文件中。指针、引用和数组保持为叶子节点，不追踪其指向对象或展开数组元素。顶部字段数量仅统计所选结构体的直接字段。
 
 ## 在 PowerShell 中构建
 
@@ -112,13 +116,29 @@ Set-Location build
 
 结构体包含 21 个字段，总大小为 **83 字节**，对齐为 **1 字节**。上表是当前 MSYS2 Clang 目标环境的实测结果，`long`、`long double`、`wchar_t` 等类型的大小可能随平台和工具链变化。
 
-这些值由 libclang 的 AST 和布局查询 API 读取。表格同时显示字节偏移和原始 bit 偏移；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
+这些值由 libclang 的 AST 和布局查询 API 读取。成员树同时显示字节偏移和原始 bit 偏移；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
 
 头文件在运行时解析，修改其内容后直接重新运行即可。也可以传入其他包含 `MsgHeader` 定义的头文件：
 
 ```powershell
 .\clangTest.exe C:/path/to/other.h
 ```
+
+## 回归检查
+
+沿用上文构建环境的 PATH 设置，在项目根目录执行：
+
+```powershell
+New-Item -ItemType Directory -Path build/tree-tests -Force | Out-Null
+Set-Location build/tree-tests
+& "$qtBin/qmake.exe" ../../tests/nested-tests.pro -spec win32-clang-g++ "LIBCLANG_ROOT=$clangRoot" "CONFIG+=release" "CONFIG-=debug_and_release"
+& "$qtRoot/Tools/mingw730_64/bin/mingw32-make.exe" -j2
+$env:QT_QPA_PLATFORM = 'offscreen'
+.\nested-tests.exe
+Remove-Item Env:QT_QPA_PLATFORM
+```
+
+检查覆盖普通结构体、多层嵌套、类型别名、累计偏移、位域、被包含文件中的嵌套类型、指针/引用/数组不展开、树形节点展开折叠，以及重新解析和错误后的清空。
 
 ## 启动错误：0xC0000135
 

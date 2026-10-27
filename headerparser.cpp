@@ -43,6 +43,14 @@ struct VisitorContext
     bool valid = true;
 };
 
+struct FieldVisitorContext
+{
+    VisitorContext &parser;
+    QVector<FieldInfo> &fields;
+    qint64 baseOffsetBits;
+    QString path;
+};
+
 // 回调参数依次为当前节点、父节点、用户数据；这里不使用父节点。
 CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
 {
@@ -50,7 +58,7 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
     if (clang_getCursorKind(cursor) != CXCursor_FieldDecl)
         return CXChildVisit_Continue;
 
-    VisitorContext &context = *static_cast<VisitorContext *>(data);
+    FieldVisitorContext &context = *static_cast<FieldVisitorContext *>(data);
     const CXType type = clang_getCursorType(cursor);
     FieldInfo field;
     field.name = toQString(clang_getCursorSpelling(cursor));
@@ -62,14 +70,30 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
     // 大小和自然对齐以字节为单位；字段相对于结构体起点的偏移以 bit 为单位。
     // pack(1) 影响字段位置，但 uint32_t 类型本身的自然对齐仍然是 4。
     field.offsetBits = clang_Cursor_getOffsetOfField(cursor);
+    const QString fieldPath = context.path + QLatin1Char('.') + field.name;
     // 负数表示 CXTypeLayoutError，例如不完整类型，不能当作有效布局。
     if (field.size < 0 || field.alignment < 0 || field.offsetBits < 0) {
-        context.valid = false;
-        context.result.diagnostics.append(QStringLiteral("无法读取字段 %1 的内存布局。")
-                                              .arg(field.name));
+        context.parser.valid = false;
+        context.parser.result.diagnostics.append(QStringLiteral("无法读取字段 %1 的内存布局。")
+                                                     .arg(fieldPath));
         return CXChildVisit_Continue;
     }
-    context.result.structure.fields.append(field);
+    field.absoluteOffsetBits = context.baseOffsetBits + field.offsetBits;
+
+    // 通过规范类型找到定义，可展开 typedef/using 后的记录类型以及其他头文件中的定义。
+    // 只递归按值存放的记录类型，指针/引用不会被追踪，自引用指针也不会造成递归。
+    const CXType canonicalType = clang_getCanonicalType(type);
+    if (canonicalType.kind == CXType_Record) {
+        const CXCursor declaration = clang_getTypeDeclaration(canonicalType);
+        const CXCursor definition = clang_getCursorDefinition(declaration);
+        if (!clang_Cursor_isNull(definition)) {
+            FieldVisitorContext childContext{
+                context.parser, field.children, field.absoluteOffsetBits, fieldPath
+            };
+            clang_visitChildren(definition, visitField, &childContext);
+        }
+    }
+    context.fields.append(field);
     return CXChildVisit_Continue;
 }
 
@@ -99,8 +123,9 @@ CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData data)
                                               .arg(structure.name));
         return CXChildVisit_Break;
     }
-    // 从结构体的直接子节点读取各个字段，同一个 context 会传入每次字段回调。
-    clang_visitChildren(cursor, visitField, data);
+    // 每一层传入自己的字段容器和累计偏移，保存完整的成员树。
+    FieldVisitorContext fieldContext{context, structure.fields, 0, structure.name};
+    clang_visitChildren(cursor, visitField, &fieldContext);
     return CXChildVisit_Break;
 }
 

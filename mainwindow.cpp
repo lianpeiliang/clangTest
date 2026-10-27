@@ -10,8 +10,34 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QTableWidget>
+#include <QTreeWidget>
 #include <QVBoxLayout>
+
+namespace {
+
+QString byteOffset(qint64 bits)
+{
+    // 位域保留不足一个字节的 bit 偏移。
+    return bits % 8 == 0 ? QString::number(bits / 8)
+                        : QStringLiteral("%1 + %2 bit").arg(bits / 8).arg(bits % 8);
+}
+
+void appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields)
+{
+    for (const FieldInfo &field : fields) {
+        auto *item = new QTreeWidgetItem(parent, QStringList{
+            field.name, field.typeName, field.canonicalTypeName,
+            QString::number(field.size), QString::number(field.alignment),
+            byteOffset(field.offsetBits), byteOffset(field.absoluteOffsetBits),
+            QString::number(field.offsetBits), QString::number(field.absoluteOffsetBits)
+        });
+        for (int column = 3; column < item->columnCount(); ++column)
+            item->setTextAlignment(column, Qt::AlignCenter);
+        appendFields(item, field.children);
+    }
+}
+
+} // namespace
 
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
@@ -43,6 +69,10 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_structName->setPlaceholderText(QStringLiteral("输入结构体名称，按回车解析"));
     nameLabel->setBuddy(m_structName);
     nameRow->addWidget(m_structName, 1);
+    auto *expandButton = new QPushButton(QStringLiteral("全部展开"), this);
+    auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
+    nameRow->addWidget(expandButton);
+    nameRow->addWidget(collapseButton);
     layout->addLayout(nameRow);
 
     m_structureName = new QLabel(this);
@@ -58,25 +88,35 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(m_summary);
 
-    // 每一行对应一个 FieldInfo，单元格显示的是解析结果，禁止直接编辑。
-    m_fields = new QTableWidget(0, 7, this);
-    m_fields->setObjectName(QStringLiteral("fieldsTable"));
-    m_fields->setHorizontalHeaderLabels(QStringList{
+    // 根节点表示结构体，子节点递归显示字段；禁止直接编辑查询结果。
+    m_fields = new QTreeWidget(this);
+    m_fields->setObjectName(QStringLiteral("fieldsTree"));
+    m_fields->setColumnCount(9);
+    m_fields->setHeaderLabels(QStringList{
         QStringLiteral("字段名称"), QStringLiteral("字段类型"), QStringLiteral("展开后的类型"),
         QStringLiteral("大小（字节）"), QStringLiteral("自然对齐（字节）"),
-        QStringLiteral("偏移（字节）"), QStringLiteral("偏移（bit）")
+        QStringLiteral("相对偏移（字节）"), QStringLiteral("绝对偏移（字节）"),
+        QStringLiteral("相对偏移（bit）"), QStringLiteral("绝对偏移（bit）")
     });
     m_fields->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_fields->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_fields->setAlternatingRowColors(true);
     m_fields->setWordWrap(false);
-    m_fields->verticalHeader()->setDefaultSectionSize(25);
-    m_fields->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_fields->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_fields->horizontalHeaderItem(2)->setToolTip(
+    m_fields->setUniformRowHeights(true);
+    m_fields->setAnimated(true);
+    m_fields->header()->setStretchLastSection(false);
+    m_fields->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_fields->header()->setMinimumSectionSize(80);
+    m_fields->headerItem()->setToolTip(2,
         QStringLiteral("展开 typedef 等类型别名，例如 uint16_t 对应 unsigned short。"));
-    m_fields->horizontalHeaderItem(4)->setToolTip(
+    m_fields->headerItem()->setToolTip(4,
         QStringLiteral("类型本身的自然对齐，可能大于结构体 pack 指定的对齐值。"));
+    for (int column : {5, 7})
+        m_fields->headerItem()->setToolTip(column,
+            QStringLiteral("字段相对于直接所属结构体起点的偏移。"));
+    for (int column : {6, 8})
+        m_fields->headerItem()->setToolTip(column,
+            QStringLiteral("字段相对于最外层结构体起点的累计偏移。"));
     layout->addWidget(m_fields, 1);
 
     m_status = new QLabel(this);
@@ -92,6 +132,8 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     connect(reloadButton, &QPushButton::clicked, this, [this] { reloadHeader(); });
     connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadHeader(); });
     connect(m_structName, &QLineEdit::returnPressed, this, [this] { reloadHeader(); });
+    connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
+    connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
             this, QStringLiteral("选择包含结构体定义的头文件"), m_filePath->text(),
@@ -115,7 +157,7 @@ void MainWindow::reloadHeader()
         result = parseHeader(path, structName);
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
-    m_fields->setRowCount(0);
+    m_fields->clear();
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
     if (!result.success) {
@@ -128,28 +170,19 @@ void MainWindow::reloadHeader()
     const StructInfo &structure = result.structure;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));
-    m_summary->setText(QStringLiteral("%1 个字段    |    大小：%2 字节    |    结构体对齐：%3 字节")
+    m_summary->setText(QStringLiteral("%1 个直接字段    |    大小：%2 字节    |    结构体对齐：%3 字节")
                            .arg(structure.fields.size()).arg(structure.size).arg(structure.alignment));
-    m_fields->setRowCount(structure.fields.size());
-    for (int row = 0; row < structure.fields.size(); ++row) {
-        const FieldInfo &field = structure.fields.at(row);
-        // 普通字段除以 8 即为字节偏移；遇到位域时保留余下的 bit，避免丢失信息。
-        const QString byteOffset = field.offsetBits % 8 == 0
-            ? QString::number(field.offsetBits / 8)
-            : QStringLiteral("%1 + %2 bit").arg(field.offsetBits / 8).arg(field.offsetBits % 8);
-        const QStringList values{
-            field.name, field.typeName, field.canonicalTypeName,
-            QString::number(field.size), QString::number(field.alignment),
-            byteOffset, QString::number(field.offsetBits)
-        };
-        for (int column = 0; column < values.size(); ++column) {
-            auto *item = new QTableWidgetItem(values.at(column));
-            if (column >= 3)
-                item->setTextAlignment(Qt::AlignCenter);
-            m_fields->setItem(row, column, item);
-        }
-    }
+    auto *root = new QTreeWidgetItem(m_fields, QStringList{
+        structure.name, QStringLiteral("struct"), structure.name,
+        QString::number(structure.size), QString::number(structure.alignment),
+        QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0")
+    });
+    for (int column = 3; column < root->columnCount(); ++column)
+        root->setTextAlignment(column, Qt::AlignCenter);
+    appendFields(root, structure.fields);
+    // 默认展开根节点和第一层嵌套；更深层可手动展开或点击“全部展开”。
+    m_fields->expandToDepth(1);
     m_status->setText(result.diagnostics.isEmpty()
-        ? QStringLiteral("解析成功。修改并保存头文件后，点击“重新解析”更新表格。")
+        ? QStringLiteral("解析成功。点击箭头展开或折叠嵌套字段；修改并保存头文件后，点击“重新解析”更新。")
         : QStringLiteral("解析成功，下方有诊断提示。"));
 }
