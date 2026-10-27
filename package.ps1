@@ -94,12 +94,12 @@ try {
     $sourceDir = Join-Path $appDir 'source'
     $licenseDir = Join-Path $appDir 'licenses'
     New-Item -ItemType Directory -Path $samplesDir, $sourceDir, $licenseDir -Force | Out-Null
-    foreach ($sample in @('MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h')) {
+    foreach ($sample in @('MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $sample) -Destination $samplesDir
     }
     foreach ($file in @(
         'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp',
-        'MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'clangTest.pro', 'README.md', 'package.ps1'
+        'MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h', 'clangTest.pro', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }
@@ -115,6 +115,7 @@ clangTest Windows x64 便携版
 3. 点击“打开头文件…”选择 SimpleMsgHeader.h 或 MinimalMsgHeader.h 对比。
 4. 修改并保存头文件后，点击“重新解析”。结构体名称输入框可指定查找的名称。
 5. 打开 samples/PacketHeader.h，将结构体名称改为 PacketHeader，验证其他名称的解析。
+6. 打开 samples/NestedPacketHeader.h，名称设为 NestedPacketHeader，查看嵌套成员；改为 PacketAddress 可单独查看内部字段。
 
 自带 Qt、libclang、相关 DLL 和 C/C++ 头文件，无需安装 Qt 或 Clang。
 请保留整个文件夹的目录结构。解析目标为 Windows x64 / MinGW，使用 C++11。

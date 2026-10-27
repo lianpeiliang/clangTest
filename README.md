@@ -14,6 +14,7 @@
 | `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
 | `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
 | `PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
+| `NestedPacketHeader.h` | 嵌套样例，`NestedPacketHeader` 包含 `PacketAddress` 类型的成员，使用 1 字节打包 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -61,6 +62,8 @@ libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗
 对比测试时，用 **打开头文件…** 分别选择 `MsgHeader.h`（21 个字段、83 字节）、`SimpleMsgHeader.h`（3 个字段、7 字节）或 `MinimalMsgHeader.h`（2 个字段、4 字节）。最小样例使用默认对齐，两个字段偏移为 0、2 字节，可观察到中间的填充。各文件都定义名为 `MsgHeader` 的结构体，应分别解析，不要在同一个源文件中同时包含这些头文件。
 
 验证其他结构体名称时，打开 `PacketHeader.h`，将 **结构体名称** 改为 `PacketHeader`，按回车或点击 **重新解析**。预期显示 `sequence`、`payloadLength`、`flags` 三个字段，偏移分别为 0、4、6 字节，总大小 7 字节，对齐 1 字节。
+
+验证嵌套结构体时，打开 `NestedPacketHeader.h`，将 **结构体名称** 设为 `NestedPacketHeader`。预期显示 `sequence`、`address`、`payloadLength` 三个字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。当前界面将 `address` 显示为一个大小为 4 字节的字段，不展开其内部成员；可将名称改为 `PacketAddress`，单独查看 `source`、`destination` 两个字段，其偏移分别为 0、2 字节。
 
 ## 在 PowerShell 中构建
 
@@ -134,7 +137,7 @@ Qt Creator 中的配置方法见上文“在 Qt Creator 中运行”。仅链接
 .\package.ps1
 ```
 
-安装路径不同时，可通过 `-QtRoot` 和 `-ClangRoot` 参数指定。脚本会构建 Release，部署 Qt、递归收集 DLL 依赖，并附带 C/C++ 标准库头文件、四个测试样例、程序源码和第三方许可文件。
+安装路径不同时，可通过 `-QtRoot` 和 `-ClangRoot` 参数指定。脚本会构建 Release，部署 Qt、递归收集 DLL 依赖，并附带 C/C++ 标准库头文件、五个测试样例、程序源码和第三方许可文件。
 
 输出为 `dist/clangTest-windows-x64.zip`，校验文件为同目录下的 `.zip.sha256`。将 ZIP 作为 GitHub Release 附件上传即可。
 

@@ -1,0 +1,26 @@
+#ifndef NESTEDPACKETHEADER_H
+#define NESTEDPACKETHEADER_H
+
+// 嵌套结构体样例：将“结构体名称”设为 NestedPacketHeader 后解析。
+// 也可改为 PacketAddress，单独查看地址结构体的字段。
+#pragma pack(push, 1)
+
+struct PacketAddress
+{
+    unsigned short source;      // 源地址：2 字节，偏移 0。
+    unsigned short destination; // 目标地址：2 字节，偏移 2。
+};
+
+struct NestedPacketHeader
+{
+    unsigned int sequence;        // 序列号：4 字节，偏移 0。
+    PacketAddress address;        // 嵌套成员：4 字节，偏移 4。
+    unsigned short payloadLength; // 负载长度：2 字节，偏移 8。
+};
+
+#pragma pack(pop)
+
+// 当前目标环境下：PacketAddress 大小 4 字节，NestedPacketHeader 大小 10 字节。
+// 两个结构体均按 1 字节对齐；内部字段的偏移相对于各自所属结构体的起点。
+// 当前界面将 address 显示为一个字段，不会展开其内部成员。
+#endif
