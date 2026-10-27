@@ -6,6 +6,11 @@
 #include <QVector>
 
 // 用普通 Qt 数据保存查询结果，界面无需持有 libclang 的 Cursor 或 Type。
+enum class FieldValueKind
+{
+    ReadOnly, Record, SignedInteger, UnsignedInteger, Boolean, Float, Double, LongDouble
+};
+
 struct FieldInfo
 {
     QString name;
@@ -16,6 +21,9 @@ struct FieldInfo
     qint64 offsetBits = -1;         // 相对直接所属结构体的偏移。
     qint64 absoluteOffsetBits = -1; // 相对最外层结构体的偏移。
     QVector<FieldInfo> children;   // 按值嵌套的记录类型成员；指针、引用、数组不展开。
+    FieldValueKind valueKind = FieldValueKind::ReadOnly;
+    int valueBits = 0;             // 整数的有效位数；位域使用声明的宽度。
+    QString readOnlyReason;
 };
 
 struct StructInfo

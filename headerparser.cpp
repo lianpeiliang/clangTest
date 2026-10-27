@@ -35,6 +35,61 @@ QString toQString(CXString value)
     return text;
 }
 
+void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inheritedConst)
+{
+    const CXType canonical = clang_getCanonicalType(type);
+    field.valueBits = clang_Cursor_isBitField(cursor)
+        ? clang_getFieldDeclBitWidth(cursor) : int(field.size * 8);
+    if (inheritedConst || clang_isConstQualifiedType(canonical)) {
+        field.readOnlyReason = QStringLiteral("const 字段及其子成员暂不支持赋值。");
+        return;
+    }
+    if (field.name.isEmpty()) {
+        field.readOnlyReason = QStringLiteral("匿名字段暂不支持赋值。");
+        return;
+    }
+    switch (canonical.kind) {
+    case CXType_Bool:
+        field.valueKind = FieldValueKind::Boolean;
+        break;
+    case CXType_Char_S: case CXType_SChar: case CXType_Short:
+    case CXType_Int: case CXType_Long: case CXType_LongLong:
+        field.valueKind = FieldValueKind::SignedInteger;
+        break;
+    case CXType_Char_U: case CXType_UChar: case CXType_Char16: case CXType_Char32:
+    case CXType_UShort: case CXType_UInt: case CXType_ULong: case CXType_ULongLong:
+    case CXType_WChar: // 固定的 Windows x64 / MinGW 目标使用无符号 wchar_t。
+        field.valueKind = FieldValueKind::UnsignedInteger;
+        break;
+    case CXType_Float: field.valueKind = FieldValueKind::Float; break;
+    case CXType_Double: field.valueKind = FieldValueKind::Double; break;
+    case CXType_LongDouble: field.valueKind = FieldValueKind::LongDouble; break;
+    case CXType_Record:
+        field.valueKind = FieldValueKind::Record;
+        field.readOnlyReason = QStringLiteral("结构体作为分组，请编辑展开后的基础类型成员。");
+        break;
+    case CXType_Pointer:
+        field.readOnlyReason = QStringLiteral("指针暂不支持赋值。");
+        break;
+    case CXType_LValueReference: case CXType_RValueReference:
+        field.readOnlyReason = QStringLiteral("引用暂不支持赋值。");
+        break;
+    case CXType_ConstantArray: case CXType_IncompleteArray: case CXType_VariableArray:
+    case CXType_DependentSizedArray:
+        field.readOnlyReason = QStringLiteral("数组暂不支持赋值。");
+        break;
+    default:
+        field.readOnlyReason = QStringLiteral("此类型暂不支持赋值。");
+        break;
+    }
+    if ((field.valueKind == FieldValueKind::SignedInteger
+         || field.valueKind == FieldValueKind::UnsignedInteger)
+        && (field.valueBits <= 0 || field.valueBits > 64)) {
+        field.valueKind = FieldValueKind::ReadOnly;
+        field.readOnlyReason = QStringLiteral("当前仅支持 1～64 位整数赋值。");
+    }
+}
+
 struct VisitorContext
 {
     QString targetName;
@@ -49,6 +104,7 @@ struct FieldVisitorContext
     QVector<FieldInfo> &fields;
     qint64 baseOffsetBits;
     QString path;
+    bool inheritedConst;
 };
 
 // 回调参数依次为当前节点、父节点、用户数据；这里不使用父节点。
@@ -79,6 +135,7 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
         return CXChildVisit_Continue;
     }
     field.absoluteOffsetBits = context.baseOffsetBits + field.offsetBits;
+    describeValueType(field, type, cursor, context.inheritedConst);
 
     // 通过规范类型找到定义，可展开 typedef/using 后的记录类型以及其他头文件中的定义。
     // 只递归按值存放的记录类型，指针/引用不会被追踪，自引用指针也不会造成递归。
@@ -88,7 +145,8 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
         const CXCursor definition = clang_getCursorDefinition(declaration);
         if (!clang_Cursor_isNull(definition)) {
             FieldVisitorContext childContext{
-                context.parser, field.children, field.absoluteOffsetBits, fieldPath
+                context.parser, field.children, field.absoluteOffsetBits, fieldPath,
+                context.inheritedConst || bool(clang_isConstQualifiedType(canonicalType))
             };
             clang_visitChildren(definition, visitField, &childContext);
         }
@@ -124,7 +182,7 @@ CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData data)
         return CXChildVisit_Break;
     }
     // 每一层传入自己的字段容器和累计偏移，保存完整的成员树。
-    FieldVisitorContext fieldContext{context, structure.fields, 0, structure.name};
+    FieldVisitorContext fieldContext{context, structure.fields, 0, structure.name, false};
     clang_visitChildren(cursor, visitField, &fieldContext);
     return CXChildVisit_Break;
 }

@@ -1,6 +1,6 @@
 # clangTest
 
-一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，通过 libclang 解析 C++ 头文件，在窗口中显示指定结构体的名称、字段类型、字段名称及内存布局，默认解析 `MsgHeader`。
+一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，通过 libclang 解析 C++ 头文件，在窗口中显示指定结构体的成员树和内存布局，并支持基础类型字段赋值，默认解析 `MsgHeader`。
 
 ## 项目文件
 
@@ -10,12 +10,14 @@
 | `main.cpp` | 创建 QApplication，启动窗口 |
 | `mainwindow.h / .cpp` | 使用 QTreeWidget 显示结构体成员树及解析诊断 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
+| `fieldvalue.h / .cpp` | 根据字段类型、位宽校验输入，保留完整的 64 位整数文本 |
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
 | `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
 | `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
 | `PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
 | `NestedPacketHeader.h` | 嵌套样例，`NestedPacketHeader` 包含 `PacketAddress` 类型的成员，使用 1 字节打包 |
 | `tests/nested-tests.pro` | 嵌套解析、偏移累计和树形界面的回归检查 |
+| `tests/value-tests.pro` | 字段赋值、数值范围、只读类型和内存保存的回归检查 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -54,6 +56,7 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 - 启动时默认解析 `MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
 - 树形控件显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。根节点为所选结构体，成员按层级显示，可点击箭头展开、折叠，或使用 **全部展开 / 全部折叠**。
 - 同时显示相对直接所属结构体和相对最外层结构体的偏移，均提供字节和 bit 两种表示；位域的字节偏移保留不足一个字节的 bit 部分。
+- 在 **值** 列直接编辑基础类型字段；布尔值使用下拉框。嵌套结构体作为分组，展开后可分别填写内部字段。
 - 修改并保存头文件后，点击 **重新解析** 更新结果。
 - 点击 **打开头文件…** 选择其他文件，也可直接修改路径并按回车。
 - **结构体名称** 输入框默认填入 `MsgHeader`，可修改为其他名称，按回车或点击 **重新解析** 生效。程序按名称精确查找主文件中的 struct 定义，不查找 `#include` 引入的结构体；名称不能为空，输入两端的空白会被忽略。
@@ -68,6 +71,18 @@ libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗
 验证嵌套结构体时，打开 `NestedPacketHeader.h`，将 **结构体名称** 设为 `NestedPacketHeader`。预期显示 `sequence`、`address`、`payloadLength` 三个直接字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。展开 `address` 可看到 `source`、`destination`：相对偏移分别为 0、2 字节，绝对偏移分别为 4、6 字节。也可将名称改为 `PacketAddress` 单独解析。
 
 按值嵌套的记录类型会递归展开，包括经过 `typedef` / `using` 别名的类型；嵌套类型可定义在被包含的头文件中。指针、引用和数组保持为叶子节点，不追踪其指向对象或展开数组元素。顶部字段数量仅统计所选结构体的直接字段。
+
+## 字段赋值
+
+- 整数使用十进制输入，根据目标平台的有无符号、类型位宽及位域宽度检查范围。例如 `unsigned short` 接受 0～65535，3 位无符号位域接受 0～7。64 位整数以文本保存，避免浮点转换丢失精度。
+- `char`、`wchar_t`、`char16_t`、`char32_t` 等字符类型按十进制数值编码填写。
+- `bool` 通过下拉框选择 `false` 或 `true`。
+- `float`、`double`、`long double` 接受小数及科学计数法，例如 `-1.25`、`1e-3`；使用小数点，拒绝非法格式、NaN、无穷大、溢出和非零数值下溢至 0。
+- 指针、引用、数组、枚举、const 字段及其子成员等暂时只读，悬停可查看原因。结构体分组本身不能赋值。
+
+输入无效时编辑框标红，上方显示字段路径和错误原因，内存中保留上一次有效值；修正后自动更新。值按 `address.source` 这样的完整路径单独保存，同名嵌套字段互不覆盖。
+
+数值初始为 `0`，布尔值初始为 `false`，暂不读取头文件中的成员初始化表达式。重新解析同一文件、同一结构体时保留仍符合类型要求的值；字段范围变化导致旧值无效时恢复初始值。切换文件、切换结构体或解析失败时清空之前的值。本版值仅保存在当前窗口内存中，关闭后不保留，尚未生成二进制数据或修改头文件。
 
 ## 在 PowerShell 中构建
 
@@ -139,6 +154,20 @@ Remove-Item Env:QT_QPA_PLATFORM
 ```
 
 检查覆盖普通结构体、多层嵌套、类型别名、累计偏移、位域、被包含文件中的嵌套类型、指针/引用/数组不展开、树形节点展开折叠，以及重新解析和错误后的清空。
+
+赋值检查使用独立构建目录。在项目根目录执行：
+
+```powershell
+New-Item -ItemType Directory -Path build/value-tests -Force | Out-Null
+Set-Location build/value-tests
+& "$qtBin/qmake.exe" ../../tests/value-tests.pro -spec win32-clang-g++ "LIBCLANG_ROOT=$clangRoot" "CONFIG+=release" "CONFIG-=debug_and_release"
+& "$qtRoot/Tools/mingw730_64/bin/mingw32-make.exe" -j2
+$env:QT_QPA_PLATFORM = 'offscreen'
+.\value-tests.exe
+Remove-Item Env:QT_QPA_PLATFORM
+```
+
+检查包含整数及位域边界、64 位整数精度、浮点格式与范围、布尔下拉框、只读字段、嵌套路径、无效输入提示，以及重新解析后的值保留和重置。
 
 ## 启动错误：0xC0000135
 

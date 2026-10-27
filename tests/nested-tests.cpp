@@ -104,8 +104,8 @@ int main(int argc, char **argv)
     CHECK(root->text(0) == "NestedPacketHeader" && root->childCount() == 3);
     QTreeWidgetItem *addressItem = root->child(1);
     CHECK(addressItem->childCount() == 2 && addressItem->isExpanded());
-    CHECK(addressItem->child(1)->text(5) == "2");
-    CHECK(addressItem->child(1)->text(6) == "6");
+    CHECK(addressItem->child(1)->text(6) == "2");
+    CHECK(addressItem->child(1)->text(7) == "6");
     for (QPushButton *button : window.findChildren<QPushButton *>()) {
         if (button->text() == QStringLiteral("全部折叠")) {
             button->click();
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
     name->setText("BitRoot");
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     QTreeWidgetItem *bitItem = tree->topLevelItem(0)->child(1)->child(1);
-    CHECK(bitItem->text(5) == "0 + 3 bit" && bitItem->text(6) == "1 + 3 bit");
+    CHECK(bitItem->text(6) == "0 + 3 bit" && bitItem->text(7) == "1 + 3 bit");
     name->setText("Missing");
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     CHECK(tree->topLevelItemCount() == 0);

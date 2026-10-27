@@ -1,8 +1,11 @@
 #include "mainwindow.h"
 #include "headerparser.h"
+#include "fieldvalue.h"
 
+#include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFont>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -22,28 +25,90 @@ QString byteOffset(qint64 bits)
                         : QStringLiteral("%1 + %2 bit").arg(bits / 8).arg(bits % 8);
 }
 
-void appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields)
+} // namespace
+
+void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields,
+                              const QString &parentPath,
+                              const QHash<QString, QString> &previousValues)
 {
     for (const FieldInfo &field : fields) {
+        const QString fieldPath = parentPath.isEmpty() ? field.name
+                                                       : parentPath + QLatin1Char('.') + field.name;
         auto *item = new QTreeWidgetItem(parent, QStringList{
-            field.name, field.typeName, field.canonicalTypeName,
+            field.name, QString(), field.typeName, field.canonicalTypeName,
             QString::number(field.size), QString::number(field.alignment),
             byteOffset(field.offsetBits), byteOffset(field.absoluteOffsetBits),
             QString::number(field.offsetBits), QString::number(field.absoluteOffsetBits)
         });
-        for (int column = 3; column < item->columnCount(); ++column)
+        item->setToolTip(0, fieldPath);
+        for (int column = 4; column < item->columnCount(); ++column)
             item->setTextAlignment(column, Qt::AlignCenter);
-        appendFields(item, field.children);
+        if (!isEditableField(field)) {
+            item->setText(1, field.valueKind == FieldValueKind::Record
+                                ? QStringLiteral("分组") : QStringLiteral("只读"));
+            item->setToolTip(1, field.readOnlyReason);
+        } else {
+            const FieldValueValidation previous = validateFieldValue(field, previousValues.value(fieldPath));
+            const QString value = previous.valid ? previous.value : defaultFieldValue(field);
+            m_fieldValues.insert(fieldPath, value);
+            const QString hint = fieldValueHint(field);
+            if (field.valueKind == FieldValueKind::Boolean) {
+                auto *editor = new QComboBox(m_fields);
+                editor->setObjectName(QStringLiteral("fieldValue:") + fieldPath);
+                editor->addItems({QStringLiteral("false"), QStringLiteral("true")});
+                editor->setCurrentText(value);
+                editor->setToolTip(fieldPath + QLatin1Char('\n') + hint);
+                item->setSizeHint(1, QSize(190, editor->sizeHint().height() + 4));
+                m_fields->setItemWidget(item, 1, editor);
+                connect(editor, &QComboBox::currentTextChanged, this,
+                        [this, fieldPath](const QString &text) {
+                    m_fieldValues.insert(fieldPath, text);
+                });
+            } else {
+                auto *editor = new QLineEdit(value, m_fields);
+                editor->setObjectName(QStringLiteral("fieldValue:") + fieldPath);
+                editor->setToolTip(fieldPath + QLatin1Char('\n') + hint);
+                item->setSizeHint(1, QSize(190, editor->sizeHint().height() + 4));
+                m_fields->setItemWidget(item, 1, editor);
+                connect(editor, &QLineEdit::textChanged, this,
+                        [this, editor, field, fieldPath, hint](const QString &text) {
+                    const FieldValueValidation validation = validateFieldValue(field, text);
+                    if (validation.valid) {
+                        m_fieldValues.insert(fieldPath, validation.value);
+                        m_valueErrors.remove(fieldPath);
+                    } else {
+                        m_valueErrors.insert(fieldPath, validation.error);
+                    }
+                    editor->setStyleSheet(validation.valid ? QString() : QStringLiteral(
+                        "QLineEdit { border: 1px solid #c62828; background-color: #fff0f0; color: #9c1c1c; }"));
+                    editor->setToolTip(fieldPath + QLatin1Char('\n')
+                                      + (validation.valid ? hint : validation.error));
+                    updateValueStatus();
+                });
+            }
+        }
+        appendFields(item, field.children, fieldPath, previousValues);
     }
 }
 
-} // namespace
+void MainWindow::updateValueStatus()
+{
+    if (m_valueErrors.isEmpty()) {
+        m_valueStatus->setText(QStringLiteral("值保存在内存中。数值直接输入，布尔值使用下拉选择；字符类型按数值编码填写。"));
+    } else {
+        QStringList paths = m_valueErrors.keys();
+        paths.sort();
+        const QString path = paths.first();
+        m_valueStatus->setText(QStringLiteral("%1 个字段输入无效：%2：%3 上一次有效值已保留。")
+            .arg(paths.size()).arg(path, m_valueErrors.value(path)));
+    }
+}
 
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
     setWindowTitle(QStringLiteral("C++ 结构体查看器"));
-    resize(1120, 820);
+    resize(1360, 820);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(20, 20, 20, 20);
@@ -87,13 +152,19 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_summary = new QLabel(this);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(m_summary);
+    m_valueStatus = new QLabel(this);
+    m_valueStatus->setObjectName(QStringLiteral("fieldValueStatus"));
+    m_valueStatus->setTextFormat(Qt::PlainText);
+    m_valueStatus->setWordWrap(true);
+    layout->addWidget(m_valueStatus);
 
-    // 根节点表示结构体，子节点递归显示字段；禁止直接编辑查询结果。
+    // 布局列只读；“值”列用独立编辑控件，校验后的值与布局元数据分开保存。
     m_fields = new QTreeWidget(this);
     m_fields->setObjectName(QStringLiteral("fieldsTree"));
-    m_fields->setColumnCount(9);
+    m_fields->setColumnCount(10);
     m_fields->setHeaderLabels(QStringList{
-        QStringLiteral("字段名称"), QStringLiteral("字段类型"), QStringLiteral("展开后的类型"),
+        QStringLiteral("字段名称"), QStringLiteral("值"),
+        QStringLiteral("字段类型"), QStringLiteral("展开后的类型"),
         QStringLiteral("大小（字节）"), QStringLiteral("自然对齐（字节）"),
         QStringLiteral("相对偏移（字节）"), QStringLiteral("绝对偏移（字节）"),
         QStringLiteral("相对偏移（bit）"), QStringLiteral("绝对偏移（bit）")
@@ -102,19 +173,21 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_fields->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_fields->setAlternatingRowColors(true);
     m_fields->setWordWrap(false);
-    m_fields->setUniformRowHeights(true);
     m_fields->setAnimated(true);
     m_fields->header()->setStretchLastSection(false);
     m_fields->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_fields->header()->setMinimumSectionSize(80);
-    m_fields->headerItem()->setToolTip(2,
+    m_fields->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_fields->setColumnWidth(1, 190);
+    m_fields->headerItem()->setToolTip(1, QStringLiteral("基础类型可赋值，嵌套结构体作为分组；指针、引用和数组暂时只读。"));
+    m_fields->headerItem()->setToolTip(3,
         QStringLiteral("展开 typedef 等类型别名，例如 uint16_t 对应 unsigned short。"));
-    m_fields->headerItem()->setToolTip(4,
+    m_fields->headerItem()->setToolTip(5,
         QStringLiteral("类型本身的自然对齐，可能大于结构体 pack 指定的对齐值。"));
-    for (int column : {5, 7})
+    for (int column : {6, 8})
         m_fields->headerItem()->setToolTip(column,
             QStringLiteral("字段相对于直接所属结构体起点的偏移。"));
-    for (int column : {6, 8})
+    for (int column : {7, 9})
         m_fields->headerItem()->setToolTip(column,
             QStringLiteral("字段相对于最外层结构体起点的累计偏移。"));
     layout->addWidget(m_fields, 1);
@@ -158,6 +231,13 @@ void MainWindow::reloadHeader()
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
     m_fields->clear();
+    const QString source = QFileInfo(path).absoluteFilePath() + QLatin1Char('\n') + structName;
+    const QHash<QString, QString> previousValues = source == m_valuesSource
+        ? m_fieldValues : QHash<QString, QString>();
+    m_fieldValues.clear();
+    m_valueErrors.clear();
+    m_valuesSource.clear();
+    m_valueStatus->clear();
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
     if (!result.success) {
@@ -168,18 +248,20 @@ void MainWindow::reloadHeader()
     }
 
     const StructInfo &structure = result.structure;
+    m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));
     m_summary->setText(QStringLiteral("%1 个直接字段    |    大小：%2 字节    |    结构体对齐：%3 字节")
                            .arg(structure.fields.size()).arg(structure.size).arg(structure.alignment));
     auto *root = new QTreeWidgetItem(m_fields, QStringList{
-        structure.name, QStringLiteral("struct"), structure.name,
+        structure.name, QStringLiteral("分组"), QStringLiteral("struct"), structure.name,
         QString::number(structure.size), QString::number(structure.alignment),
         QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0")
     });
-    for (int column = 3; column < root->columnCount(); ++column)
+    for (int column = 4; column < root->columnCount(); ++column)
         root->setTextAlignment(column, Qt::AlignCenter);
-    appendFields(root, structure.fields);
+    appendFields(root, structure.fields, QString(), previousValues);
+    updateValueStatus();
     // 默认展开根节点和第一层嵌套；更深层可手动展开或点击“全部展开”。
     m_fields->expandToDepth(1);
     m_status->setText(result.diagnostics.isEmpty()
