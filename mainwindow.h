@@ -27,6 +27,7 @@ private:
                       const QString &parentPath, const QHash<QString, QString> &previousValues);
     void updateValueStatus();
     void showBinary();
+    void exportDefinitionJson();
 
     QLineEdit *m_filePath;
     QLineEdit *m_structName;
@@ -40,6 +41,7 @@ private:
     QHash<QString, QString> m_valueErrors;
     QString m_valuesSource;
     QPushButton *m_binaryButton;
+    QPushButton *m_exportDefinitionButton;
     StructInfo m_parsedStructure;
     QStringList m_parseDiagnostics;
     bool m_hasStructure = false;

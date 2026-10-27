@@ -12,6 +12,7 @@
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
 | `fieldvalue.h / .cpp` | 根据字段类型、位宽校验输入，保留完整的 64 位整数文本 |
 | `binaryencoder.h / .cpp` | 按目标布局编码当前字段值，并格式化十六进制预览 |
+| `definitionjson.h / .cpp` | 导出不含实例值的结构定义 JSON，使用 QSaveFile 保存 |
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
 | `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
 | `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
@@ -20,6 +21,7 @@
 | `tests/nested-tests.pro` | 嵌套解析、偏移累计和树形界面的回归检查 |
 | `tests/value-tests.pro` | 字段赋值、数值范围、只读类型和内存保存的回归检查 |
 | `tests/binary-tests.pro` | 二进制与原生 C++ 内存布局比对，以及十六进制预览检查 |
+| `tests/definition-tests.pro` | 结构定义 JSON、嵌套元数据、不含值及导出保存检查 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -105,6 +107,18 @@ libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗
 数组保持只读，不展开、不接受赋值，但允许二进制预览：按数组实际大小和绝对偏移将整个数组区域填为 `00`，后续字段的位置保持不变。该规则也适用于嵌套、多维、类型别名、结构体元素和 const 数组；数组元素内的填充也全为 0。
 
 没有解析结果或存在无效输入时，按钮不可用。包含指针、引用、枚举、非数组 const 等尚无可编码值的字段，或存在联合体、继承、虚函数、匿名结构体/联合体等暂不支持的布局时，会提示具体原因并停止生成。单个结构体预览大小上限为 1 MiB。
+
+## 导出结构定义 JSON
+
+成功解析头文件中的结构体后，点击 **导出结构定义 JSON**，选择保存位置，默认文件名为 `结构体名称.json`。导出的是当前已经解析的结构体；修改并保存头文件后，应先点击 **重新解析** 更新定义。
+
+文件为缩进格式的 UTF-8 JSON，不包含输入值或成员初始化表达式。输入值有错误、数组只读或二进制编码暂不支持，都不影响结构定义导出；解析失败时按钮不可用。
+
+顶层保存 `schemaVersion`、`target`、`byteOrder`、`name`、`size`、`alignment` 和 `fields`。当前格式版本为 1，目标为 `x86_64-w64-windows-gnu`，字节序为 `little`。这是一份本程序的结构描述格式。
+
+字段保存 `name`、`type`、`canonicalType`、`kind`、`size`、`alignment`、`offsetBits`、`absoluteOffsetBits`、`isArray`、`isBitField`、`editable` 和递归的 `fields`。整数附带 `integerBits`，位域附带 `bitWidth`；必要时附带只读原因和二进制编码限制。`size`、`alignment` 单位为字节，偏移单位为 bit：`offsetBits` 相对直接所属结构体，`absoluteOffsetBits` 相对最外层结构体。
+
+数组保留原始类型、展开别名后的类型、尺寸和数组标记，当前不展开元素，`fields` 为空数组。普通叶子字段的 `fields` 同样为空数组。布局整数通常保存为 JSON 数字；超过 ±(2^53−1) 的整数以十进制字符串保存，避免 Qt 5 JSON 数字转换丢失精度。
 
 ## 在 PowerShell 中构建
 
@@ -192,6 +206,8 @@ Remove-Item Env:QT_QPA_PLATFORM
 检查包含整数及位域边界、64 位整数精度、浮点格式与范围、布尔下拉框、只读字段、嵌套路径、无效输入提示，以及重新解析后的值保留和重置。
 
 二进制检查采用相同构建方式，将项目文件换为 `tests/binary-tests.pro`，在独立目录构建并运行 `binary-tests.exe`。检查包括已知十六进制结果、原生 C++ 结构体内存比对、填充、带符号位域、浮点临界舍入和次正规数、不支持的布局，以及预览和复制操作。
+
+结构定义导出检查同样使用独立目录和 `tests/definition-tests.pro`，运行 `definition-tests.exe`。检查覆盖嵌套布局、类型别名、数组、位域、不含输入值、UTF-8 文件保存、导出按钮、保存对话框取消和错误处理。
 
 ## 启动错误：0xC0000135
 

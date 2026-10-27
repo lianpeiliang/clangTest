@@ -2,6 +2,7 @@
 #include "headerparser.h"
 #include "fieldvalue.h"
 #include "binaryencoder.h"
+#include "definitionjson.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -163,6 +164,26 @@ void MainWindow::showBinary()
     dialog->show();
 }
 
+void MainWindow::exportDefinitionJson()
+{
+    if (!m_hasStructure)
+        return;
+    const QDir sourceDir = QFileInfo(m_valuesSource.section(QLatin1Char('\n'), 0, 0)).dir();
+    const QString suggested = sourceDir.filePath(m_parsedStructure.name + QStringLiteral(".json"));
+    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出结构定义 JSON"), suggested,
+                                               QStringLiteral("JSON 文件 (*.json);;所有文件 (*)"));
+    if (path.isEmpty())
+        return;
+    if (QFileInfo(path).suffix().isEmpty())
+        path += QStringLiteral(".json");
+    QString error;
+    if (!saveStructureDefinitionJson(m_parsedStructure, path, &error)) {
+        m_status->setText(QStringLiteral("导出失败：%1").arg(error));
+        return;
+    }
+    m_status->setText(QStringLiteral("已导出结构定义（不含值）：%1").arg(QDir::toNativeSeparators(path)));
+}
+
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
@@ -202,6 +223,11 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_binaryButton->setEnabled(false);
     m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
     nameRow->addWidget(m_binaryButton);
+    m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
+    m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
+    m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
+    m_exportDefinitionButton->setEnabled(false);
+    nameRow->addWidget(m_exportDefinitionButton);
     layout->addLayout(nameRow);
 
     m_structureName = new QLabel(this);
@@ -272,6 +298,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
     connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
     connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
+    connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
             this, QStringLiteral("选择包含结构体定义的头文件"), m_filePath->text(),
@@ -307,6 +334,7 @@ void MainWindow::reloadHeader()
     m_parsedStructure = StructInfo();
     m_parseDiagnostics = result.diagnostics;
     m_binaryButton->setEnabled(false);
+    m_exportDefinitionButton->setEnabled(false);
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
     if (!result.success) {
@@ -319,6 +347,7 @@ void MainWindow::reloadHeader()
     const StructInfo &structure = result.structure;
     m_parsedStructure = structure;
     m_hasStructure = true;
+    m_exportDefinitionButton->setEnabled(true);
     m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));
