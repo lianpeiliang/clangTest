@@ -38,6 +38,12 @@ QString toQString(CXString value)
 void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inheritedConst)
 {
     const CXType canonical = clang_getCanonicalType(type);
+    field.isArray = canonical.kind == CXType_ConstantArray || canonical.kind == CXType_IncompleteArray
+        || canonical.kind == CXType_VariableArray || canonical.kind == CXType_DependentSizedArray;
+    if (field.isArray) {
+        field.readOnlyReason = QStringLiteral("数组只读，二进制预览按数组实际大小全部填 0。");
+        return;
+    }
     field.valueBits = clang_Cursor_isBitField(cursor)
         ? clang_getFieldDeclBitWidth(cursor) : int(field.size * 8);
     if (inheritedConst || clang_isConstQualifiedType(canonical)) {
@@ -73,10 +79,6 @@ void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inhe
         break;
     case CXType_LValueReference: case CXType_RValueReference:
         field.readOnlyReason = QStringLiteral("引用暂不支持赋值。");
-        break;
-    case CXType_ConstantArray: case CXType_IncompleteArray: case CXType_VariableArray:
-    case CXType_DependentSizedArray:
-        field.readOnlyReason = QStringLiteral("数组暂不支持赋值。");
         break;
     default:
         field.readOnlyReason = QStringLiteral("此类型暂不支持赋值。");

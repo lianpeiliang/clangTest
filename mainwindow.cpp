@@ -136,7 +136,7 @@ void MainWindow::showBinary()
     auto *layout = new QVBoxLayout(dialog);
     auto *summary = new QLabel(QStringLiteral(
         "%1    |    %2 字节    |    Windows x64 / MinGW，小端序\n"
-        "当前值快照；每行 16 字节，左侧为十六进制偏移，填充字节和未命名位域补 0。")
+        "当前值快照；每行 16 字节，左侧为十六进制偏移，数组、填充字节和未命名位域补 0。")
         .arg(m_parsedStructure.name).arg(result.bytes.size()), dialog);
     summary->setTextFormat(Qt::PlainText);
     summary->setWordWrap(true);

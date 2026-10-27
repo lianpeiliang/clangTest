@@ -25,6 +25,7 @@ struct FieldInfo
     int valueBits = 0;             // 整数的有效位数；位域使用声明的宽度。
     QString readOnlyReason;
     bool isBitField = false;
+    bool isArray = false; // 数组保持只读，二进制预览将整个数组占用的字节补 0。
     QString binaryEncodingIssue;
 };
 

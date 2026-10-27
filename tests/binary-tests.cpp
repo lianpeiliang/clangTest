@@ -181,12 +181,50 @@ int main(int argc, char **argv)
         "struct Base { int x; }; struct Derived : Base { int y; };"
         "struct Virtual { virtual ~Virtual(); int x; };"
         "struct Anonymous { union { int a; float b; }; };"));
-    for (const QString &name : {"Pointer", "Ref", "Array", "Const", "Choice", "Derived", "Virtual", "Anonymous"}) {
+    const ParseResult array = parseHeader(simplePath, "Array");
+    CHECK(array.success && array.structure.fields.first().isArray);
+    CHECK(!isEditableField(array.structure.fields.first()));
+    CHECK(!validateFieldValue(array.structure.fields.first(), "1").valid);
+    const BinaryResult zeroArray = encodeStructure(array.structure, {});
+    CHECK(zeroArray.success && zeroArray.bytes == QByteArray(8, '\0'));
+    for (const QString &name : {"Pointer", "Ref", "Const", "Choice", "Derived", "Virtual", "Anonymous"}) {
         const ParseResult unsupported = parseHeader(simplePath, name);
         CHECK(unsupported.success);
         const BinaryResult failure = encodeStructure(unsupported.structure, {});
         CHECK(!failure.success && failure.bytes.isEmpty() && !failure.diagnostics.isEmpty());
     }
+
+    const QString arraysPath = temporary.path() + "/Arrays.h";
+    CHECK(writeSource(arraysPath,
+        "typedef unsigned short Matrix[2][3]; struct Element { unsigned char x; unsigned int y; };"
+        "struct Inner { unsigned char before; Matrix matrix; unsigned short after; };"
+        "struct Arrays { unsigned char first; Inner inner; Element records[2]; const char text[3]; unsigned int last; };"));
+    const ParseResult arrays = parseHeader(arraysPath, "Arrays");
+    CHECK(arrays.success && arrays.structure.size == 44);
+    CHECK(arrays.structure.fields.at(1).children.at(1).isArray); // typedef 和多维数组。
+    CHECK(arrays.structure.fields.at(2).isArray && arrays.structure.fields.at(2).size == 16);
+    CHECK(arrays.structure.fields.at(3).isArray); // const 数组也全 0。
+    const QHash<QString, QString> arrayValues{
+        {"first", "0x11"}, {"inner.before", "0x22"}, {"inner.after", "0x3344"}, {"last", "0x55667788"}
+    };
+    const BinaryResult arrayBytes = encodeStructure(arrays.structure, arrayValues);
+    CHECK(arrayBytes.success && arrayBytes.bytes.size() == 44);
+    QByteArray expectedArrays(44, '\0');
+    expectedArrays[0] = '\x11';
+    expectedArrays[2] = '\x22';
+    expectedArrays[16] = '\x44';
+    expectedArrays[17] = '\x33';
+    expectedArrays.replace(40, 4, QByteArray::fromHex("88776655"));
+    CHECK(arrayBytes.bytes == expectedArrays);
+    QHash<QString, QString> ignoredArrayValues = arrayValues;
+    ignoredArrayValues.insert("inner.matrix", "0xFFFF"); // 外部提供数组值也不接受赋值。
+    CHECK(encodeStructure(arrays.structure, ignoredArrayValues).bytes == expectedArrays);
+    StructInfo overlappingArray = arrays.structure;
+    overlappingArray.fields.last().absoluteOffsetBits = overlappingArray.fields.at(2).absoluteOffsetBits;
+    CHECK(!encodeStructure(overlappingArray, arrayValues).success);
+    StructInfo invalidArray = array.structure;
+    invalidArray.fields.first().size = 9;
+    CHECK(!encodeStructure(invalidArray, {}).success);
 
     MainWindow window(project + "/NestedPacketHeader.h");
     QLineEdit *name = window.findChild<QLineEdit *>("structNameInput");
@@ -234,6 +272,22 @@ int main(int argc, char **argv)
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     button->click();
     CHECK(window.findChild<QPlainTextEdit *>()->toPlainText().contains("next"));
+    app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    file->setText(arraysPath);
+    name->setText("Arrays");
+    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    root = tree->topLevelItem(0);
+    CHECK(root && !tree->itemWidget(root->child(2), 1));
+    CHECK(!tree->itemWidget(root->child(1)->child(1), 1));
+    CHECK(!window.fieldValues().contains("records") && !window.fieldValues().contains("inner.matrix"));
+    qobject_cast<QLineEdit *>(tree->itemWidget(root->child(0), 1))->setText("0x11");
+    qobject_cast<QLineEdit *>(tree->itemWidget(root->child(1)->child(0), 1))->setText("0x22");
+    qobject_cast<QLineEdit *>(tree->itemWidget(root->child(1)->child(2), 1))->setText("0x3344");
+    qobject_cast<QLineEdit *>(tree->itemWidget(root->child(4), 1))->setText("0x55667788");
+    button->click();
+    dialog = window.findChild<QDialog *>("binaryPreviewDialog");
+    CHECK(dialog && dialog->findChild<QPlainTextEdit *>("binaryHexView")->toPlainText() == formatHexDump(expectedArrays));
+    dialog->close();
     QTextStream(stdout) << "PASS: known hex, native packed layout, nested fields, integer limits,"
                           " signed bitfields, floats/long double, padding, unsupported layouts and preview/copy UI\n";
     return 0;

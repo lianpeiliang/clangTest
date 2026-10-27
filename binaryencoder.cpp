@@ -101,6 +101,18 @@ void encodeFields(BinaryResult &result, QByteArray &written, const QVector<Field
             result.diagnostics.append(path + QStringLiteral("：") + field.binaryEncodingIssue);
             continue;
         }
+        if (field.isArray) {
+            // 数组不接受赋值；保留实际尺寸和偏移，并预留整个区域，防止其他字段重叠写入。
+            if (field.size < 0 || field.size > result.bytes.size() || field.absoluteOffsetBits < 0
+                || field.absoluteOffsetBits > qint64(result.bytes.size()) * 8
+                || field.absoluteOffsetBits % 8 != 0) {
+                result.diagnostics.append(QStringLiteral("%1：数组大小或偏移无效。").arg(path));
+            } else if (field.size > 0) {
+                writeBits(result, written, path, field.absoluteOffsetBits, int(field.size * 8),
+                          QByteArray(int(field.size), '\0'));
+            }
+            continue;
+        }
         if (field.valueKind == FieldValueKind::Record) {
             encodeFields(result, written, field.children, values, path);
             continue;
