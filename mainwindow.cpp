@@ -1,12 +1,18 @@
 #include "mainwindow.h"
 #include "headerparser.h"
 #include "fieldvalue.h"
+#include "binaryencoder.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDir>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -93,6 +99,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
 
 void MainWindow::updateValueStatus()
 {
+    m_binaryButton->setEnabled(m_hasStructure && m_valueErrors.isEmpty());
     if (m_valueErrors.isEmpty()) {
         m_valueStatus->setText(QStringLiteral("值保存在内存中。数值直接输入，布尔值使用下拉选择；字符类型按数值编码填写。"));
     } else {
@@ -102,6 +109,57 @@ void MainWindow::updateValueStatus()
         m_valueStatus->setText(QStringLiteral("%1 个字段输入无效：%2：%3 上一次有效值已保留。")
             .arg(paths.size()).arg(path, m_valueErrors.value(path)));
     }
+}
+
+void MainWindow::showBinary()
+{
+    if (!m_hasStructure || hasInvalidFieldValues())
+        return;
+    const BinaryResult result = encodeStructure(m_parsedStructure, m_fieldValues);
+    if (!result.success) {
+        m_status->setText(QStringLiteral("无法生成二进制，请查看下方原因。"));
+        m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
+        m_diagnostics->show();
+        return;
+    }
+    m_diagnostics->setPlainText(m_parseDiagnostics.join(QLatin1Char('\n')));
+    m_diagnostics->setVisible(!m_parseDiagnostics.isEmpty());
+    m_status->setText(QStringLiteral("已生成 %1 字节的二进制预览。修改值后请重新点击“查看二进制”。")
+                          .arg(result.bytes.size()));
+
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("binaryPreviewDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("十六进制预览：%1").arg(m_parsedStructure.name));
+    dialog->resize(860, 520);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *summary = new QLabel(QStringLiteral(
+        "%1    |    %2 字节    |    Windows x64 / MinGW，小端序\n"
+        "当前值快照；每行 16 字节，左侧为十六进制偏移，填充字节和未命名位域补 0。")
+        .arg(m_parsedStructure.name).arg(result.bytes.size()), dialog);
+    summary->setTextFormat(Qt::PlainText);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+    auto *hex = new QPlainTextEdit(dialog);
+    hex->setObjectName(QStringLiteral("binaryHexView"));
+    hex->setReadOnly(true);
+    hex->setLineWrapMode(QPlainTextEdit::NoWrap);
+    QFont hexFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    hexFont.setPointSize(11);
+    hex->setFont(hexFont);
+    hex->setPlainText(formatHexDump(result.bytes));
+    layout->addWidget(hex, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
+    auto *copy = buttons->addButton(QStringLiteral("复制十六进制"), QDialogButtonBox::ActionRole);
+    copy->setObjectName(QStringLiteral("copyHexButton"));
+    const QByteArray bytes = result.bytes;
+    connect(copy, &QPushButton::clicked, dialog, [bytes] {
+        QApplication::clipboard()->setText(QString::fromLatin1(bytes.toHex(' ').toUpper()));
+    });
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    layout->addWidget(buttons);
+    dialog->show();
 }
 
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
@@ -138,6 +196,11 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
     nameRow->addWidget(expandButton);
     nameRow->addWidget(collapseButton);
+    m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
+    m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
+    m_binaryButton->setEnabled(false);
+    m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
+    nameRow->addWidget(m_binaryButton);
     layout->addLayout(nameRow);
 
     m_structureName = new QLabel(this);
@@ -207,6 +270,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     connect(m_structName, &QLineEdit::returnPressed, this, [this] { reloadHeader(); });
     connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
     connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
+    connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
             this, QStringLiteral("选择包含结构体定义的头文件"), m_filePath->text(),
@@ -238,6 +302,10 @@ void MainWindow::reloadHeader()
     m_valueErrors.clear();
     m_valuesSource.clear();
     m_valueStatus->clear();
+    m_hasStructure = false;
+    m_parsedStructure = StructInfo();
+    m_parseDiagnostics = result.diagnostics;
+    m_binaryButton->setEnabled(false);
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
     if (!result.success) {
@@ -248,6 +316,8 @@ void MainWindow::reloadHeader()
     }
 
     const StructInfo &structure = result.structure;
+    m_parsedStructure = structure;
+    m_hasStructure = true;
     m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));

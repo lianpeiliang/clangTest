@@ -98,7 +98,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot $sample) -Destination $samplesDir
     }
     foreach ($file in @(
-        'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp',
+        'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp',
         'MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h', 'clangTest.pro', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
@@ -120,6 +120,7 @@ clangTest Windows x64 便携版
 7. 相对偏移表示相对直接所属结构体的位置，绝对偏移表示相对最外层结构体的位置。
 8. 在“值”列填写基础类型字段，bool 使用下拉框。输入无效时标红，并保留上一次有效值；指针、引用和数组等暂时只读。
 9. 值仅保存在当前窗口内存中，关闭后不保留；同一结构体重新解析时保留仍符合类型要求的值。
+10. 编辑后点击“查看二进制”查看小端序十六进制快照，并可复制字节；填充补 0。无效输入或不支持的字段会阻止生成。
 
 自带 Qt、libclang、相关 DLL 和 C/C++ 头文件，无需安装 Qt 或 Clang。
 请保留整个文件夹的目录结构。解析目标为 Windows x64 / MinGW，使用 C++11。

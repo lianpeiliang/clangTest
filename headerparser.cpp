@@ -90,6 +90,30 @@ void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inhe
     }
 }
 
+CXChildVisitResult checkRecordEncoding(CXCursor cursor, CXCursor, CXClientData data)
+{
+    QString &issue = *static_cast<QString *>(data);
+    const CXCursorKind kind = clang_getCursorKind(cursor);
+    if (kind == CXCursor_CXXBaseSpecifier)
+        issue = QStringLiteral("含继承布局，暂不支持二进制编码。");
+    else if ((kind == CXCursor_CXXMethod || kind == CXCursor_Destructor)
+             && clang_CXXMethod_isVirtual(cursor))
+        issue = QStringLiteral("含虚函数布局，暂不支持二进制编码。");
+    else if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl)
+             && clang_Cursor_isAnonymousRecordDecl(cursor))
+        issue = QStringLiteral("含匿名结构体或联合体，暂不支持二进制编码。");
+    return issue.isEmpty() ? CXChildVisit_Continue : CXChildVisit_Break;
+}
+
+QString recordEncodingIssue(CXCursor cursor)
+{
+    if (clang_getCursorKind(cursor) == CXCursor_UnionDecl)
+        return QStringLiteral("联合体尚未指定有效成员，暂不支持二进制编码。");
+    QString issue;
+    clang_visitChildren(cursor, checkRecordEncoding, &issue);
+    return issue;
+}
+
 struct VisitorContext
 {
     QString targetName;
@@ -135,6 +159,7 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
         return CXChildVisit_Continue;
     }
     field.absoluteOffsetBits = context.baseOffsetBits + field.offsetBits;
+    field.isBitField = clang_Cursor_isBitField(cursor);
     describeValueType(field, type, cursor, context.inheritedConst);
 
     // 通过规范类型找到定义，可展开 typedef/using 后的记录类型以及其他头文件中的定义。
@@ -144,6 +169,7 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
         const CXCursor declaration = clang_getTypeDeclaration(canonicalType);
         const CXCursor definition = clang_getCursorDefinition(declaration);
         if (!clang_Cursor_isNull(definition)) {
+            field.binaryEncodingIssue = recordEncodingIssue(definition);
             FieldVisitorContext childContext{
                 context.parser, field.children, field.absoluteOffsetBits, fieldPath,
                 context.inheritedConst || bool(clang_isConstQualifiedType(canonicalType))
@@ -171,6 +197,7 @@ CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData data)
     context.found = true;
     StructInfo &structure = context.result.structure;
     structure.name = toQString(clang_getCursorSpelling(cursor));
+    structure.binaryEncodingIssue = recordEncodingIssue(cursor);
     const CXType type = clang_getCursorType(cursor);
     // libclang 按目标平台和 #pragma pack 计算对齐与填充，无需手动累加字段大小。
     structure.size = clang_Type_getSizeOf(type);

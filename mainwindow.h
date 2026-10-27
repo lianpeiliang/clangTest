@@ -8,6 +8,7 @@
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -25,6 +26,7 @@ private:
     void appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields,
                       const QString &parentPath, const QHash<QString, QString> &previousValues);
     void updateValueStatus();
+    void showBinary();
 
     QLineEdit *m_filePath;
     QLineEdit *m_structName;
@@ -37,6 +39,10 @@ private:
     QHash<QString, QString> m_fieldValues;
     QHash<QString, QString> m_valueErrors;
     QString m_valuesSource;
+    QPushButton *m_binaryButton;
+    StructInfo m_parsedStructure;
+    QStringList m_parseDiagnostics;
+    bool m_hasStructure = false;
 };
 
 #endif

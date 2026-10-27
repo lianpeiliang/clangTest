@@ -24,6 +24,8 @@ struct FieldInfo
     FieldValueKind valueKind = FieldValueKind::ReadOnly;
     int valueBits = 0;             // 整数的有效位数；位域使用声明的宽度。
     QString readOnlyReason;
+    bool isBitField = false;
+    QString binaryEncodingIssue;
 };
 
 struct StructInfo
@@ -32,6 +34,7 @@ struct StructInfo
     qint64 size = -1;
     qint64 alignment = -1;
     QVector<FieldInfo> fields;
+    QString binaryEncodingIssue;
 };
 
 struct ParseResult
