@@ -8,5 +8,8 @@
 QJsonDocument structureDefinitionJson(const StructInfo &structure);
 bool saveStructureDefinitionJson(const StructInfo &structure, const QString &filePath,
                                  QString *error = nullptr);
+// 仅解析本程序 schemaVersion=1 的结构定义；此路径不调用 libclang。
+ParseResult parseStructureDefinitionJson(const QByteArray &bytes);
+ParseResult loadStructureDefinitionJson(const QString &filePath);
 
 #endif
