@@ -11,6 +11,8 @@
 | `mainwindow.h / .cpp` | 显示结构体名称、字段表格及解析诊断 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
+| `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
+| `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -53,6 +55,8 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 - 解析失败时清空旧表格，并在下方显示错误原因；修正文件后可再次解析。
 
 libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗口显示。解析资源释放后，界面仍可安全使用这些普通 Qt 数据。
+
+对比测试时，用 **打开头文件…** 分别选择 `MsgHeader.h`（21 个字段、83 字节）、`SimpleMsgHeader.h`（3 个字段、7 字节）或 `MinimalMsgHeader.h`（2 个字段、4 字节）。最小样例使用默认对齐，两个字段偏移为 0、2 字节，可观察到中间的填充。各文件都定义名为 `MsgHeader` 的结构体，应分别解析，不要在同一个源文件中同时包含这些头文件。
 
 ## 在 PowerShell 中构建
 
