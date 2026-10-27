@@ -35,6 +35,16 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     sourceRow->addWidget(reloadButton);
     layout->addLayout(sourceRow);
 
+    auto *nameRow = new QHBoxLayout;
+    auto *nameLabel = new QLabel(QStringLiteral("结构体名称："), this);
+    nameRow->addWidget(nameLabel);
+    m_structName = new QLineEdit(QStringLiteral("MsgHeader"), this);
+    m_structName->setObjectName(QStringLiteral("structNameInput"));
+    m_structName->setPlaceholderText(QStringLiteral("输入结构体名称，按回车解析"));
+    nameLabel->setBuddy(m_structName);
+    nameRow->addWidget(m_structName, 1);
+    layout->addLayout(nameRow);
+
     m_structureName = new QLabel(this);
     m_structureName->setObjectName(QStringLiteral("structureName"));
     QFont titleFont = font();
@@ -81,9 +91,10 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     // 按钮只触发“重新读取文件并刷新界面”，不参与 libclang 的 AST 遍历。
     connect(reloadButton, &QPushButton::clicked, this, [this] { reloadHeader(); });
     connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadHeader(); });
+    connect(m_structName, &QLineEdit::returnPressed, this, [this] { reloadHeader(); });
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
-            this, QStringLiteral("选择包含 MsgHeader 的头文件"), m_filePath->text(),
+            this, QStringLiteral("选择包含结构体定义的头文件"), m_filePath->text(),
             QStringLiteral("C++ 头文件 (*.h *.hpp *.hh *.hxx);;所有文件 (*)"));
         if (!path.isEmpty()) {
             m_filePath->setText(QDir::toNativeSeparators(path));
@@ -96,7 +107,12 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
 void MainWindow::reloadHeader()
 {
     const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
-    const ParseResult result = parseHeader(path);
+    const QString structName = m_structName->text().trimmed();
+    ParseResult result;
+    if (structName.isEmpty())
+        result.diagnostics.append(QStringLiteral("请输入要解析的结构体名称，例如 MsgHeader。"));
+    else
+        result = parseHeader(path, structName);
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
     m_fields->setRowCount(0);
@@ -105,7 +121,7 @@ void MainWindow::reloadHeader()
     if (!result.success) {
         m_structureName->setText(QStringLiteral("解析失败"));
         m_summary->setText(QStringLiteral("尚无可显示的结构体信息"));
-        m_status->setText(QStringLiteral("请检查文件路径和下方诊断信息，修正后点击“重新解析”。"));
+        m_status->setText(QStringLiteral("请检查文件路径、结构体名称和下方诊断信息，修正后点击“重新解析”。"));
         return;
     }
 

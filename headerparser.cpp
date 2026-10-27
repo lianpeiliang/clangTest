@@ -1,12 +1,31 @@
 #include "headerparser.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
+#include <QVersionNumber>
 #include <clang-c/Index.h>
 
 // 解析流程：创建 CXIndex → 解析得到 CXTranslationUnit → 遍历 AST → 查询布局。
 // CXCursor 是 AST 节点，CXType 是节点对应的类型，两者都依赖所属的翻译单元。
 // 字符串和布局数值复制到 ParseResult 后，就可以安全地释放翻译单元。
 namespace {
+
+// 标准库和 Clang 内置头文件按版本号放在子目录中，选择其中最新的版本。
+QString versionDirectory(const QString &parentPath)
+{
+    QString selected;
+    QVersionNumber bestVersion;
+    const QDir parent(parentPath);
+    for (const QString &name : parent.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        const QVersionNumber version = QVersionNumber::fromString(name);
+        if (!version.isNull() && (selected.isEmpty() || version > bestVersion)) {
+            selected = parent.filePath(name);
+            bestVersion = version;
+        }
+    }
+    return selected;
+}
 
 QString toQString(CXString value)
 {
@@ -99,12 +118,41 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
 
     const QByteArray sourceFile = sourceInfo.absoluteFilePath().toUtf8();
     // 这些参数用于解析头文件，与编译当前 Qt 程序的参数是两回事。
-    // FullArgv 的首项为编译器路径，帮助寻找 MSYS2 标准库头文件，不会启动编译器子进程。
+    // FullArgv 的首项为编译器路径，不会启动编译器子进程。
     // -x c++ 指定语言；-std 指定标准；--target 决定 ABI 和内存布局的目标平台。
-    const char *arguments[] = {
+    QList<QByteArray> arguments = {
         LIBCLANG_ROOT "/bin/clang++.exe", "-x", "c++", "-std=c++11",
         "--target=x86_64-w64-windows-gnu"
     };
+    const QString runtimePath = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("runtime"));
+    if (QDir(runtimePath).exists()) {
+        // 便携包显式使用随包头文件，禁止回退到本机 Qt/Clang/MSYS2 的搜索路径。
+        const QString cxxPath = versionDirectory(runtimePath + QStringLiteral("/include/c++"));
+        const QString resourcePath = versionDirectory(runtimePath + QStringLiteral("/lib/clang"));
+        if (cxxPath.isEmpty() || resourcePath.isEmpty()) {
+            context.result.diagnostics.append(QStringLiteral("随包标准库头文件不完整，请完整解压程序压缩包。"));
+            return context.result;
+        }
+        // argv[0] 仅供 libclang 识别工具链位置，便携包不需要真正附带 clang++.exe。
+        arguments[0] = (runtimePath + QStringLiteral("/bin/clang++.exe")).toUtf8();
+        arguments.append("-nostdinc");
+        arguments.append((QStringLiteral("-resource-dir=") + resourcePath).toUtf8());
+        // C++ 头文件必须在 C 头文件之前，保证标准库的 #include_next 顺序正确。
+        const QStringList includePaths = {
+            cxxPath, cxxPath + QStringLiteral("/x86_64-w64-mingw32"),
+            cxxPath + QStringLiteral("/backward"), resourcePath + QStringLiteral("/include"),
+            runtimePath + QStringLiteral("/include")
+        };
+        for (const QString &includePath : includePaths) {
+            arguments.append("-isystem");
+            arguments.append(includePath.toUtf8());
+        }
+    }
+    // QByteArray 保存参数文本，指针数组只在解析调用期间借用这些文本。
+    QVector<const char *> argumentPointers;
+    for (const QByteArray &argument : arguments)
+        argumentPointers.append(argument.constData());
 
     // 第一个 0：不排除预编译头声明；第二个 0：不自动打印诊断，稍后自行收集。
     CXIndex index = clang_createIndex(0, 0);
@@ -116,8 +164,7 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
     // 参数顺序：索引、文件、编译参数、参数数量、内存文件、内存文件数量、选项、输出指针。
     // nullptr, 0 表示没有 CXUnsavedFile，读取磁盘；None 表示不启用额外选项。
     const CXErrorCode error = clang_parseTranslationUnit2FullArgv(
-        index, sourceFile.constData(), arguments,
-        static_cast<int>(sizeof(arguments) / sizeof(arguments[0])),
+        index, sourceFile.constData(), argumentPointers.constData(), argumentPointers.size(),
         nullptr, 0, CXTranslationUnit_None, &unit);
     if (error != CXError_Success || !unit) {
         context.result.diagnostics.append(QStringLiteral("libclang 解析失败，错误码：%1").arg(int(error)));

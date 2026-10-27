@@ -18,6 +18,7 @@ private:
     void reloadHeader();
 
     QLineEdit *m_filePath;
+    QLineEdit *m_structName;
     QLabel *m_structureName;
     QLabel *m_summary;
     QTableWidget *m_fields;

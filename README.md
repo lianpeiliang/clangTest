@@ -1,6 +1,6 @@
 # clangTest
 
-一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，通过 libclang 解析 C++ 头文件，在窗口中显示 `MsgHeader` 的名称、字段类型、字段名称及内存布局。
+一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，通过 libclang 解析 C++ 头文件，在窗口中显示指定结构体的名称、字段类型、字段名称及内存布局，默认解析 `MsgHeader`。
 
 ## 项目文件
 
@@ -13,6 +13,7 @@
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
 | `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
 | `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
+| `PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -51,12 +52,15 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 - 启动时默认解析 `MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
 - 表格逐行显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。
 - 修改并保存头文件后，点击 **重新解析** 更新结果。
-- 点击 **打开头文件…** 选择其他文件，也可直接修改路径并按回车。当前查找主文件内名为 `MsgHeader` 的 struct 定义。
+- 点击 **打开头文件…** 选择其他文件，也可直接修改路径并按回车。
+- **结构体名称** 输入框默认填入 `MsgHeader`，可修改为其他名称，按回车或点击 **重新解析** 生效。程序按名称精确查找主文件中的 struct 定义，不查找 `#include` 引入的结构体；名称不能为空，输入两端的空白会被忽略。
 - 解析失败时清空旧表格，并在下方显示错误原因；修正文件后可再次解析。
 
 libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗口显示。解析资源释放后，界面仍可安全使用这些普通 Qt 数据。
 
 对比测试时，用 **打开头文件…** 分别选择 `MsgHeader.h`（21 个字段、83 字节）、`SimpleMsgHeader.h`（3 个字段、7 字节）或 `MinimalMsgHeader.h`（2 个字段、4 字节）。最小样例使用默认对齐，两个字段偏移为 0、2 字节，可观察到中间的填充。各文件都定义名为 `MsgHeader` 的结构体，应分别解析，不要在同一个源文件中同时包含这些头文件。
+
+验证其他结构体名称时，打开 `PacketHeader.h`，将 **结构体名称** 改为 `PacketHeader`，按回车或点击 **重新解析**。预期显示 `sequence`、`payloadLength`、`flags` 三个字段，偏移分别为 0、4、6 字节，总大小 7 字节，对齐 1 字节。
 
 ## 在 PowerShell 中构建
 
@@ -121,3 +125,17 @@ Set-Location build
 - 包含所选 Qt 版本的 `bin` 目录；Qt Creator 的 Kit 会自动配置 Qt 路径。
 
 Qt Creator 中的配置方法见上文“在 Qt Creator 中运行”。仅链接 `libclang.dll.a` 不会自动配置运行时的 DLL 搜索路径。
+
+## 生成 Windows 便携压缩包
+
+在已安装上述开发环境的电脑上，进入项目目录运行：
+
+```powershell
+.\package.ps1
+```
+
+安装路径不同时，可通过 `-QtRoot` 和 `-ClangRoot` 参数指定。脚本会构建 Release，部署 Qt、递归收集 DLL 依赖，并附带 C/C++ 标准库头文件、四个测试样例、程序源码和第三方许可文件。
+
+输出为 `dist/clangTest-windows-x64.zip`，校验文件为同目录下的 `.zip.sha256`。将 ZIP 作为 GitHub Release 附件上传即可。
+
+使用者只需完整解压，再双击 `clangTest.exe`，无需配置 Qt、Clang 或 PATH。程序会优先读取 `samples/MsgHeader.h`，并使用 `runtime/` 内的标准库及 Clang 内置头文件进行解析。
