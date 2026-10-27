@@ -1,13 +1,15 @@
 # clangTest
 
-一个使用 qmake（`.pro`）构建的 Qt 控制台示例，通过 libclang 解析 C++ 头文件，读取 `MsgHeader` 的字段信息与内存布局。
+一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，通过 libclang 解析 C++ 头文件，在窗口中显示 `MsgHeader` 的名称、字段类型、字段名称及内存布局。
 
 ## 项目文件
 
 | 文件 | 用途 |
 | --- | --- |
 | `clangTest.pro` | Qt 项目配置及 libclang 链接配置 |
-| `main.cpp` | 解析头文件，输出字段类型、大小、对齐与偏移 |
+| `main.cpp` | 创建 QApplication，启动窗口 |
+| `mainwindow.h / .cpp` | 显示结构体名称、字段表格及解析诊断 |
+| `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
 | `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
@@ -37,10 +39,20 @@
    PATH=D:\msys64\mingw64\bin;${PATH}
    ```
 
-3. 取消勾选 **Run in terminal**，让输出显示在 Qt Creator 的“应用程序输出”中。
+3. 取消勾选 **Run in terminal**，直接显示程序窗口。
 4. 按 `Ctrl+R` 构建并运行。
 
 MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新版 C++ 运行库使用同一套依赖。该配置仅作用于本项目的运行环境。
+
+## 窗口操作
+
+- 启动时默认解析 `MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
+- 表格逐行显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。
+- 修改并保存头文件后，点击 **重新解析** 更新结果。
+- 点击 **打开头文件…** 选择其他文件，也可直接修改路径并按回车。当前查找主文件内名为 `MsgHeader` 的 struct 定义。
+- 解析失败时清空旧表格，并在下方显示错误原因；修正文件后可再次解析。
+
+libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗口显示。解析资源释放后，界面仍可安全使用这些普通 Qt 数据。
 
 ## 在 PowerShell 中构建
 
@@ -89,7 +101,7 @@ Set-Location build
 
 结构体包含 21 个字段，总大小为 **83 字节**，对齐为 **1 字节**。上表是当前 MSYS2 Clang 目标环境的实测结果，`long`、`long double`、`wchar_t` 等类型的大小可能随平台和工具链变化。
 
-这些值由 libclang 的 AST 和布局查询 API 读取。字段偏移原始单位为 bit，程序同时输出换算后的字节数；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
+这些值由 libclang 的 AST 和布局查询 API 读取。表格同时显示字节偏移和原始 bit 偏移；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
 
 头文件在运行时解析，修改其内容后直接重新运行即可。也可以传入其他包含 `MsgHeader` 定义的头文件：
 
