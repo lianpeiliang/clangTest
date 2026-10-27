@@ -74,7 +74,7 @@ static CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData da
     LayoutResult &result = *static_cast<LayoutResult *>(data);
     result.found = true;
     // 对结构体类型查询布局，libclang 会按目标平台和 #pragma pack 计算对齐与填充。
-    // 当前大小为 7、对齐为 1；这里没有手动累加字段大小。
+    // pack(1) 下结构体对齐为 1；总大小由 libclang 查询，没有手动累加字段大小。
     const CXType type = clang_getCursorType(cursor);
     const long long size = clang_Type_getSizeOf(type);
     const long long alignment = clang_Type_getAlignOf(type);

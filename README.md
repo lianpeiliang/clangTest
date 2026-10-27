@@ -68,8 +68,26 @@ Set-Location build
 | `msgId` | `uint16_t` | 2 | 0 |
 | `msgType` | `uint8_t` | 1 | 2 |
 | `dataLength` | `uint32_t` | 4 | 3 |
+| `charValue` | `char` | 1 | 7 |
+| `signedCharValue` | `signed char` | 1 | 8 |
+| `unsignedCharValue` | `unsigned char` | 1 | 9 |
+| `boolValue` | `bool` | 1 | 10 |
+| `shortValue` | `short` | 2 | 11 |
+| `unsignedShortValue` | `unsigned short` | 2 | 13 |
+| `intValue` | `int` | 4 | 15 |
+| `unsignedIntValue` | `unsigned int` | 4 | 19 |
+| `longValue` | `long` | 4 | 23 |
+| `unsignedLongValue` | `unsigned long` | 4 | 27 |
+| `longLongValue` | `long long` | 8 | 31 |
+| `unsignedLongLongValue` | `unsigned long long` | 8 | 39 |
+| `floatValue` | `float` | 4 | 47 |
+| `doubleValue` | `double` | 8 | 51 |
+| `longDoubleValue` | `long double` | 16 | 59 |
+| `wcharValue` | `wchar_t` | 2 | 75 |
+| `char16Value` | `char16_t` | 2 | 77 |
+| `char32Value` | `char32_t` | 4 | 79 |
 
-结构体总大小为 **7 字节**，对齐为 **1 字节**。
+结构体包含 21 个字段，总大小为 **83 字节**，对齐为 **1 字节**。上表是当前 MSYS2 Clang 目标环境的实测结果，`long`、`long double`、`wchar_t` 等类型的大小可能随平台和工具链变化。
 
 这些值由 libclang 的 AST 和布局查询 API 读取。字段偏移原始单位为 bit，程序同时输出换算后的字节数；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
 
