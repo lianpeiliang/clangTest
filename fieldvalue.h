@@ -6,7 +6,7 @@
 struct FieldValueValidation
 {
     bool valid = false;
-    QString value;
+    QString value; // 已校验的数值文本；整数统一转换为十进制，供编码等逻辑使用。
     QString error;
 };
 

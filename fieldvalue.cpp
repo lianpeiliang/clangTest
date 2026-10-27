@@ -47,10 +47,10 @@ QString fieldValueHint(const FieldInfo &field)
 {
     switch (field.valueKind) {
     case FieldValueKind::SignedInteger:
-        return QStringLiteral("十进制整数，范围：%1 ～ %2")
+        return QStringLiteral("整数：十进制或 0x 前缀十六进制，负数可写 -0x10；范围：%1 ～ %2")
             .arg(signedMinimum(field.valueBits)).arg(signedMaximum(field.valueBits));
     case FieldValueKind::UnsignedInteger:
-        return QStringLiteral("十进制无符号整数，范围：0 ～ %1")
+        return QStringLiteral("无符号整数：十进制或 0x 前缀十六进制（如 0xFF）；范围：0 ～ %1")
             .arg(unsignedMaximum(field.valueBits));
     case FieldValueKind::Boolean:
         return QStringLiteral("请选择 false 或 true。");
@@ -78,17 +78,24 @@ FieldValueValidation validateFieldValue(const FieldInfo &field, const QString &t
         result.value = input;
     } else if (field.valueKind == FieldValueKind::SignedInteger
                || field.valueKind == FieldValueKind::UnsignedInteger) {
-        static const QRegularExpression integer(QStringLiteral("^[+-]?[0-9]+$"));
+        static const QRegularExpression integer(QStringLiteral("^[+-]?(?:0[xX][0-9a-fA-F]+|[0-9]+)$"));
         if (!integer.match(input).hasMatch())
             return result;
+        // 显式指定进制，保证 010 仍按十进制处理；先去除 0x，保留数值的正负号。
+        const int signLength = input.startsWith(QLatin1Char('+')) || input.startsWith(QLatin1Char('-')) ? 1 : 0;
+        const bool hexadecimal = input.mid(signLength, 2).compare(QLatin1String("0x"), Qt::CaseInsensitive) == 0;
+        const int base = hexadecimal ? 16 : 10;
+        QString number = input;
+        if (hexadecimal)
+            number.remove(signLength, 2);
         bool ok = false;
         if (field.valueKind == FieldValueKind::SignedInteger) {
-            const qint64 value = input.toLongLong(&ok, 10);
+            const qint64 value = number.toLongLong(&ok, base);
             result.valid = ok && value >= signedMinimum(field.valueBits)
                 && value <= signedMaximum(field.valueBits);
             result.value = QString::number(value);
         } else {
-            const quint64 value = input.toULongLong(&ok, 10);
+            const quint64 value = number.toULongLong(&ok, base);
             result.valid = ok && !input.startsWith(QLatin1Char('-'))
                 && value <= unsignedMaximum(field.valueBits);
             result.value = QString::number(value);

@@ -95,6 +95,26 @@ int main(int argc, char **argv)
     CHECK(accepts("character", "65535") && !accepts("character", "65536"));
     CHECK(accepts("enabled", "true") && accepts("enabled", "false") && !accepts("enabled", "2"));
     CHECK(validateFieldValue(field(fields, "small"), " +0012 ").value == "12");
+    CHECK(accepts("address.code", "0xFFFF") && !accepts("address.code", "0x10000"));
+    CHECK(accepts("small", "-0x80") && accepts("small", "0x7f") && !accepts("small", "0x80"));
+    CHECK(accepts("large", "0x7FFFFFFF") && !accepts("large", "0x80000000"));
+    CHECK(!accepts("large", "0xFFFFFFFF")); // 按数值解释，不自动按补码转换成负数。
+    CHECK(accepts("large", "-0x80000000") && !accepts("large", "-0x80000001"));
+    CHECK(accepts("signedWide", "0x7FFFFFFFFFFFFFFF") && accepts("signedWide", "-0x8000000000000000"));
+    CHECK(!accepts("signedWide", "0x8000000000000000") && !accepts("signedWide", "-0x8000000000000001"));
+    CHECK(accepts("wide", "0xFFFFFFFFFFFFFFFF") && !accepts("wide", "0x10000000000000000"));
+    CHECK(validateFieldValue(field(fields, "wide"), "0xFFFFFFFFFFFFFFFF").value == "18446744073709551615");
+    CHECK(validateFieldValue(field(fields, "signedWide"), "-0x8000000000000000").value == "-9223372036854775808");
+    CHECK(validateFieldValue(field(fields, "byte"), " +0XfF ").value == "255");
+    CHECK(validateFieldValue(field(fields, "byte"), "010").value == "10");
+    CHECK(!accepts("byte", "-0x1") && !accepts("byte", "-0x0"));
+    CHECK(accepts("mask", "0x7") && !accepts("mask", "0x8"));
+    CHECK(accepts("signedBits", "-0x8") && !accepts("signedBits", "-0x9"));
+    CHECK(accepts("character", "0xFFFF") && !accepts("character", "0x10000"));
+    CHECK(!accepts("enabled", "0x1") && !accepts("gain", "0x1p2"));
+    for (const QString &bad : {"FF", "0x", "-0x", "+0X", "0xG1", "0x1.5", "0x1p2", "0x1e+2",
+                              "0b10", "0xFFu", "0x FF", "0x-1", "0x+1"})
+        CHECK(!accepts("address.code", bad));
     for (const QString &bad : {"", " ", "1.5", "1e2", "0xff", "12abc"})
         CHECK(!accepts("small", bad));
     for (const QString &good : {"1", "-1.25", ".5", "1.", "+2e-3", "0e9999"})
@@ -125,8 +145,10 @@ int main(int argc, char **argv)
     CHECK(window.fieldValues().value("enabled") == "true");
     editor("byte")->setText("255");
     CHECK(window.fieldValues().value("byte") == "255");
-    editor("byte")->setText("256");
-    CHECK(window.fieldValues().value("byte") == "255" && window.hasInvalidFieldValues());
+    editor("byte")->setText("0xFF");
+    CHECK(window.fieldValues().value("byte") == "0xFF" && !window.hasInvalidFieldValues());
+    editor("byte")->setText("0x100");
+    CHECK(window.fieldValues().value("byte") == "0xFF" && window.hasInvalidFieldValues());
     CHECK(!editor("byte")->styleSheet().isEmpty());
     CHECK(window.findChild<QLabel *>("fieldValueStatus")->text().contains("byte"));
     editor("gain")->setText("nan");
@@ -134,22 +156,22 @@ int main(int argc, char **argv)
     CHECK(window.hasInvalidFieldValues()); // 其他字段合法时仍保留未解决的错误。
     editor("gain")->setText("1.25e-3");
     CHECK(!window.hasInvalidFieldValues());
-    editor("wide")->setText("18446744073709551615");
-    editor("address.code")->setText("123");
+    editor("wide")->setText("0xFFFFFFFFFFFFFFFF");
+    editor("address.code")->setText("0x7B");
     editor("destination.code")->setText("456");
-    CHECK(window.fieldValues().value("address.code") == "123");
+    CHECK(window.fieldValues().value("address.code") == "0x7B");
     CHECK(window.fieldValues().value("destination.code") == "456");
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     root = tree->topLevelItem(0);
     CHECK(window.fieldValues().value("enabled") == "true");
-    CHECK(editor("wide")->text() == "18446744073709551615");
-    CHECK(editor("address.code")->text() == "123");
+    CHECK(editor("wide")->text() == "0xFFFFFFFFFFFFFFFF");
+    CHECK(editor("address.code")->text() == "0x7B");
     CHECK(editor("byte")->text() == "12");
     CHECK(writeSource(sourcePath, QByteArray(source).replace("unsigned char byte;", "unsigned byte:2;")));
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     root = tree->topLevelItem(0);
     CHECK(editor("byte")->text() == "0"); // 类型变化后重新校验，旧值超范围则初始化。
-    CHECK(editor("address.code")->text() == "123");
+    CHECK(editor("address.code")->text() == "0x7B");
     editor("byte")->setText("3");
     window.show();
     app.processEvents();
@@ -167,7 +189,7 @@ int main(int argc, char **argv)
     name->setText("Missing");
     CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
     CHECK(tree->topLevelItemCount() == 0 && window.fieldValues().isEmpty());
-    QTextStream(stdout) << "PASS: integer and bitfield limits, 64-bit precision, floating formats/ranges,"
+    QTextStream(stdout) << "PASS: decimal/hex integer and bitfield limits, 64-bit precision, floating formats/ranges,"
                           " bool dropdown, readonly types, nested paths, validation feedback and reload\n";
     return 0;
 }

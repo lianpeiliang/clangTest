@@ -73,6 +73,12 @@ int main(int argc, char **argv)
     const BinaryResult nestedBytes = encodeStructure(nested.structure, nestedValues);
     CHECK(nestedBytes.success && nestedBytes.bytes.toHex() == "78563412221144336655");
     CHECK(formatHexDump(nestedBytes.bytes) == "00000000  78 56 34 12 22 11 44 33 66 55");
+    const QHash<QString, QString> nestedHexValues{
+        {"sequence", "0X12345678"}, {"address.source", "0x1122"},
+        {"address.destination", "0x3344"}, {"payloadLength", "0x5566"}
+    };
+    const BinaryResult nestedHexBytes = encodeStructure(nested.structure, nestedHexValues);
+    CHECK(nestedHexBytes.success && nestedHexBytes.bytes == nestedBytes.bytes);
 
     QTemporaryDir temporary;
     CHECK(temporary.isValid());
@@ -111,6 +117,15 @@ int main(int argc, char **argv)
         expected[int(offsetof(NativePacked, extended)) + i] = '\0';
     const BinaryResult actual = encodeStructure(packed.structure, values);
     CHECK(actual.success && actual.bytes == expected);
+    QHash<QString, QString> hexValues = values;
+    hexValues["tag"] = "0x1234";
+    hexValues["delta"] = "-0x2";
+    hexValues["flags"] = "0x5";
+    hexValues["signedBits"] = "-0x3";
+    hexValues["tail"] = "0xA";
+    hexValues["code"] = "0x4E2D";
+    const BinaryResult hexActual = encodeStructure(packed.structure, hexValues);
+    CHECK(hexActual.success && hexActual.bytes == expected);
     CHECK(formatHexDump(actual.bytes).contains("\n00000010  "));
     CHECK(actual.bytes.mid(int(offsetof(NativePacked, gain)), 4).toHex() == "0000c03f");
     CHECK(actual.bytes.mid(int(offsetof(NativePacked, extended)), 16).toHex() == "00000000000000a0ff3f000000000000");
@@ -131,6 +146,9 @@ int main(int argc, char **argv)
     const BinaryResult limits = encodeStructure(wide.structure,
         {{"low", "-9223372036854775808"}, {"high", "18446744073709551615"}});
     CHECK(limits.success && limits.bytes.toHex() == "0000000000000080ffffffffffffffff");
+    const BinaryResult hexLimits = encodeStructure(wide.structure,
+        {{"low", "-0x8000000000000000"}, {"high", "0xFFFFFFFFFFFFFFFF"}});
+    CHECK(hexLimits.success && hexLimits.bytes == limits.bytes);
     const ParseResult floatOnly = parseHeader(simplePath, "FloatOnly");
     const BinaryResult negativeZero = encodeStructure(floatOnly.structure, {{"gain", "-0"}, {"ratio", "-0.0"}});
     CHECK(negativeZero.success && negativeZero.bytes.left(4).toHex() == "00000080");
@@ -181,15 +199,17 @@ int main(int argc, char **argv)
     QTreeWidgetItem *root = tree->topLevelItem(0);
     auto *sequence = qobject_cast<QLineEdit *>(tree->itemWidget(root->child(0), 1));
     CHECK(sequence);
-    sequence->setText("4294967296");
+    sequence->setText("0x100000000");
     CHECK(!button->isEnabled());
-    sequence->setText(nestedValues.value("sequence"));
+    sequence->setText("0x");
+    CHECK(!button->isEnabled());
+    sequence->setText(nestedHexValues.value("sequence"));
     auto *source = qobject_cast<QLineEdit *>(tree->itemWidget(root->child(1)->child(0), 1));
     auto *destination = qobject_cast<QLineEdit *>(tree->itemWidget(root->child(1)->child(1), 1));
     auto *length = qobject_cast<QLineEdit *>(tree->itemWidget(root->child(2), 1));
-    source->setText(nestedValues.value("address.source"));
-    destination->setText(nestedValues.value("address.destination"));
-    length->setText(nestedValues.value("payloadLength"));
+    source->setText(nestedHexValues.value("address.source"));
+    destination->setText(nestedHexValues.value("address.destination"));
+    length->setText(nestedHexValues.value("payloadLength"));
     CHECK(button->isEnabled());
     button->click();
     QDialog *dialog = window.findChild<QDialog *>("binaryPreviewDialog");

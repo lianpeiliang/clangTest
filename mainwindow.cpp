@@ -55,7 +55,8 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
             item->setToolTip(1, field.readOnlyReason);
         } else {
             const FieldValueValidation previous = validateFieldValue(field, previousValues.value(fieldPath));
-            const QString value = previous.valid ? previous.value : defaultFieldValue(field);
+            // 保留合法的输入形式（例如 0xFF），编码时再由校验器转换成数值。
+            const QString value = previous.valid ? previousValues.value(fieldPath).trimmed() : defaultFieldValue(field);
             m_fieldValues.insert(fieldPath, value);
             const QString hint = fieldValueHint(field);
             if (field.valueKind == FieldValueKind::Boolean) {
@@ -80,7 +81,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
                         [this, editor, field, fieldPath, hint](const QString &text) {
                     const FieldValueValidation validation = validateFieldValue(field, text);
                     if (validation.valid) {
-                        m_fieldValues.insert(fieldPath, validation.value);
+                        m_fieldValues.insert(fieldPath, text.trimmed());
                         m_valueErrors.remove(fieldPath);
                     } else {
                         m_valueErrors.insert(fieldPath, validation.error);
@@ -101,7 +102,7 @@ void MainWindow::updateValueStatus()
 {
     m_binaryButton->setEnabled(m_hasStructure && m_valueErrors.isEmpty());
     if (m_valueErrors.isEmpty()) {
-        m_valueStatus->setText(QStringLiteral("值保存在内存中。数值直接输入，布尔值使用下拉选择；字符类型按数值编码填写。"));
+        m_valueStatus->setText(QStringLiteral("值保存在内存中。整数支持十进制或 0x 前缀十六进制，布尔值使用下拉选择；字符类型按数值编码填写。"));
     } else {
         QStringList paths = m_valueErrors.keys();
         paths.sort();

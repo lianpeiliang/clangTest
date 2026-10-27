@@ -17,7 +17,7 @@ class MainWindow : public QWidget
 {
 public:
     explicit MainWindow(const QString &filePath, QWidget *parent = nullptr);
-    // 键为相对所选结构体的完整字段路径，例如 address.source；值为已校验的文本。
+    // 键为完整字段路径，例如 address.source；值为已校验的输入文本，保留十六进制等格式。
     const QHash<QString, QString> &fieldValues() const { return m_fieldValues; }
     bool hasInvalidFieldValues() const { return !m_valueErrors.isEmpty(); }
 
