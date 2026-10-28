@@ -27,6 +27,8 @@
 #include <functional>
 #include <memory>
 
+// 界面层的数据流：加载文件 → 得到候选结构体 → 选择一项 → 显示字段树 → 编辑/预览/导出。
+// 可以先读构造函数，再读 reloadDefinition()、showSelectedStructure()、appendFields()。
 namespace {
 
 QString byteOffset(qint64 bits)
@@ -38,11 +40,13 @@ QString byteOffset(qint64 bits)
 
 } // namespace
 
+// 每次处理一层成员；遇到嵌套成员时再次调用自己，形成与结构体对应的树。
 void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields,
                               const QString &parentPath,
                               const QHash<QString, QString> &previousValues)
 {
     for (const FieldInfo &field : fields) {
+        // 完整路径用于唯一标识字段，例如 source 与 address.source 是不同的输入项。
         const QString fieldPath = parentPath.isEmpty() ? field.name
                                                        : parentPath + QLatin1Char('.') + field.name;
         auto *item = new QTreeWidgetItem(parent, QStringList{
@@ -64,6 +68,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
             const QString value = previous.valid ? previousValues.value(fieldPath).trimmed() : defaultFieldValue(field);
             m_fieldValues.insert(fieldPath, value);
             const QString hint = fieldValueHint(field);
+            // bool 只有两个合法值，用下拉框；其他可编辑基础类型用文本输入框。
             if (field.valueKind == FieldValueKind::Boolean) {
                 auto *editor = new QComboBox(m_fields);
                 editor->setObjectName(QStringLiteral("fieldValue:") + fieldPath);
@@ -82,6 +87,8 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
                 editor->setToolTip(fieldPath + QLatin1Char('\n') + hint);
                 item->setSizeHint(1, QSize(190, editor->sizeHint().height() + 4));
                 m_fields->setItemWidget(item, 1, editor);
+                // connect 把控件的“信号”连接到处理函数：文字变化时立即校验。
+                // 方括号是 lambda 捕获列表，让处理函数稍后还能使用这里的对象和字段信息。
                 connect(editor, &QLineEdit::textChanged, this,
                         [this, editor, field, fieldPath, hint](const QString &text) {
                     const FieldValueValidation validation = validateFieldValue(field, text);
@@ -89,6 +96,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
                         m_fieldValues.insert(fieldPath, text.trimmed());
                         m_valueErrors.remove(fieldPath);
                     } else {
+                        // 无效文字仍显示在输入框中，但不覆盖 m_fieldValues 中的上次合法值。
                         m_valueErrors.insert(fieldPath, validation.error);
                     }
                     editor->setStyleSheet(validation.valid ? QString() : QStringLiteral(
@@ -103,6 +111,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
     }
 }
 
+// 每个输入框只维护自己的错误，这里统一决定按钮状态和顶部的错误提示。
 void MainWindow::updateValueStatus()
 {
     m_binaryButton->setEnabled(m_hasStructure && m_valueErrors.isEmpty());
@@ -117,6 +126,7 @@ void MainWindow::updateValueStatus()
     }
 }
 
+// 先调用编码模块得到字节，再把字节排版到弹窗；此函数不直接计算字段布局。
 void MainWindow::showBinary()
 {
     if (!m_hasStructure || hasInvalidFieldValues())
@@ -133,6 +143,7 @@ void MainWindow::showBinary()
     m_status->setText(QStringLiteral("已生成 %1 字节的二进制预览。修改值后请重新点击“查看二进制”。")
                           .arg(result.bytes.size()));
 
+    // this 是对话框的父对象；WA_DeleteOnClose 让关闭弹窗时释放它及其子控件。
     auto *dialog = new QDialog(this);
     dialog->setObjectName(QStringLiteral("binaryPreviewDialog"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -160,6 +171,7 @@ void MainWindow::showBinary()
     auto *copy = buttons->addButton(QStringLiteral("复制十六进制"), QDialogButtonBox::ActionRole);
     copy->setObjectName(QStringLiteral("copyHexButton"));
     const QByteArray bytes = result.bytes;
+    // 按值捕获 bytes，复制按钮使用的是打开弹窗那一刻的快照。
     connect(copy, &QPushButton::clicked, dialog, [bytes] {
         QApplication::clipboard()->setText(QString::fromLatin1(bytes.toHex(' ').toUpper()));
     });
@@ -168,6 +180,7 @@ void MainWindow::showBinary()
     dialog->show();
 }
 
+// 导出只传结构定义 m_parsedStructure，字段输入值 m_fieldValues 不参与保存。
 void MainWindow::exportDefinitionJson()
 {
     if (!m_hasStructure)
@@ -188,6 +201,7 @@ void MainWindow::exportDefinitionJson()
     m_status->setText(QStringLiteral("已导出结构定义（不含值）：%1").arg(QDir::toNativeSeparators(path)));
 }
 
+// 解码分成两步：先预览解析结果，再由用户点击“填入可编辑字段”更新主窗口。
 void MainWindow::showHexDecoder()
 {
     if (!m_hasStructure)
@@ -247,7 +261,9 @@ void MainWindow::showHexDecoder()
     apply->setEnabled(false);
     apply->setToolTip(QStringLiteral("仅填入已解析且通过校验的基础类型字段。原始数据中的填充和只读数组不会保存到字段值；二进制预览仍将这些区域补 0，并使用小端序。"));
     layout->addWidget(buttons);
+    // 多个按钮回调需要共享这份结果；shared_ptr 使局部函数结束后数据仍然有效。
     auto values = std::make_shared<QHash<QString, QString>>();
+    // 输入或字节序改变后清空旧结果，防止将旧数据误填回主窗口。
     const auto reset = [tree, status, apply, values] {
         tree->clear();
         values->clear();
@@ -266,6 +282,7 @@ void MainWindow::showHexDecoder()
     const StructInfo structure = m_parsedStructure;
     connect(parse, &QPushButton::clicked, dialog, [structure, input, order, tree, status, apply, values, reset] {
         reset();
+        // 第一步把用户文字转换成原始字节；第二步按当前结构体布局解释这些字节。
         const BinaryResult hex = parseHexBytes(input->toPlainText());
         if (!hex.success) {
             status->setText(hex.diagnostics.join(QLatin1Char('\n')));
@@ -277,6 +294,7 @@ void MainWindow::showHexDecoder()
             status->setText(result.diagnostics.join(QLatin1Char('\n')));
             return;
         }
+        // 递归 lambda 与 appendFields() 的思路相同，用于显示嵌套的解码结果。
         std::function<void(QTreeWidgetItem *, const QVector<DecodedField> &)> append;
         append = [&append](QTreeWidgetItem *parent, const QVector<DecodedField> &fields) {
             for (const DecodedField &field : fields) {
@@ -302,6 +320,7 @@ void MainWindow::showHexDecoder()
     connect(apply, &QPushButton::clicked, dialog, [this, values, status] {
         for (auto it = values->cbegin(); it != values->cend(); ++it) {
             const QString name = QStringLiteral("fieldValue:") + it.key();
+            // setText()/setCurrentText() 会触发原编辑控件的信号，复用已有的值更新逻辑。
             if (auto *editor = m_fields->findChild<QLineEdit *>(name))
                 editor->setText(it.value());
             else if (auto *combo = m_fields->findChild<QComboBox *>(name))
@@ -314,12 +333,14 @@ void MainWindow::showHexDecoder()
     dialog->show();
 }
 
+// 构造函数分三步：创建控件、用布局排列控件、连接信号；最后首次加载文件。
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
     setWindowTitle(QStringLiteral("结构定义编辑器"));
     resize(1360, 820);
 
+    // QVBoxLayout 从上到下排列各行；每一行再用 QHBoxLayout 从左到右排列。
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(12);
@@ -327,6 +348,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     auto *sourceRow = new QHBoxLayout;
     sourceRow->addWidget(new QLabel(QStringLiteral("结构定义文件："), this));
     m_filePath = new QLineEdit(QDir::toNativeSeparators(filePath), this);
+    // objectName 是程序内部标识，测试和 findChild() 用它查找控件，不是界面显示文字。
     m_filePath->setObjectName(QStringLiteral("headerFilePath"));
     m_filePath->setPlaceholderText(QStringLiteral("输入头文件或结构定义 JSON 路径，按回车加载"));
     sourceRow->addWidget(m_filePath, 1);
@@ -455,11 +477,14 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     reloadDefinition();
 }
 
+// 读取文件是两个入口的共同起点：头文件走 libclang，JSON 直接恢复相同的数据结构。
 void MainWindow::reloadDefinition()
 {
     const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
     m_loadedPath = QFileInfo(path).absoluteFilePath();
     m_jsonMode = QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0;
+    // 清空/添加下拉选项也会触发选择变化；填充列表期间暂时屏蔽信号，避免显示半成品。
+    // blocker 离开函数时自动恢复原信号状态，这种按作用域管理资源的方式称为 RAII。
     const QSignalBlocker blocker(m_structName);
     m_structName->clear();
     m_structures.clear();
@@ -489,6 +514,7 @@ void MainWindow::reloadDefinition()
     showSelectedStructure();
 }
 
+// 将当前候选应用到界面：下拉框下标与 m_structures 中的下标一一对应。
 void MainWindow::showSelectedStructure()
 {
     if (auto *dialog = findChild<QDialog *>(QStringLiteral("hexDecodeDialog")))
@@ -511,6 +537,7 @@ void MainWindow::showSelectedStructure()
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
     m_fields->clear();
     const QString source = m_loadedPath + QLatin1Char('\n') + structName;
+    // 只有同一文件、同一结构体才复用旧输入；具体字段是否仍合法由 appendFields() 检查。
     const QHash<QString, QString> previousValues = source == m_valuesSource
         ? m_fieldValues : QHash<QString, QString>();
     m_fieldValues.clear();

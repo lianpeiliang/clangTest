@@ -6,9 +6,12 @@
 #include <QVersionNumber>
 #include <clang-c/Index.h>
 
+// 本模块负责把 C++ 头文件转换为 headerparser.h 中的普通数据，不负责绘制界面。
+// AST（抽象语法树）是编译器理解代码后得到的树，结构体、字段等分别对应树上的节点。
 // 解析流程：创建 CXIndex → 解析得到 CXTranslationUnit → 遍历 AST → 查询布局。
 // CXCursor 是 AST 节点，CXType 是节点对应的类型，两者都依赖所属的翻译单元。
 // 字符串和布局数值复制到 ParseResult 后，就可以安全地释放翻译单元。
+// 匿名命名空间中的辅助函数只在当前 .cpp 内使用，对外接口放在命名空间外。
 namespace {
 
 // 标准库和 Clang 内置头文件按版本号放在子目录中，选择其中最新的版本。
@@ -35,6 +38,7 @@ QString toQString(CXString value)
     return text;
 }
 
+// 根据编译器返回的类型分类，决定字段用哪种输入方式，以及无法编辑时显示什么原因。
 void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inheritedConst)
 {
     const CXType canonical = clang_getCanonicalType(type);
@@ -92,6 +96,7 @@ void describeValueType(FieldInfo &field, CXType type, CXCursor cursor, bool inhe
     }
 }
 
+// “可以显示布局”不一定等于“可以生成二进制”；这里记录当前编码器不支持的布局。
 CXChildVisitResult checkRecordEncoding(CXCursor cursor, CXCursor, CXClientData data)
 {
     QString &issue = *static_cast<QString *>(data);
@@ -116,6 +121,7 @@ QString recordEncodingIssue(CXCursor cursor)
     return issue;
 }
 
+// libclang 的遍历回调通过 void* 携带用户数据；context 用来累计结果和错误。
 struct VisitorContext
 {
     ParseResult result;
@@ -126,9 +132,9 @@ struct FieldVisitorContext
 {
     VisitorContext &parser;
     QVector<FieldInfo> &fields;
-    qint64 baseOffsetBits;
-    QString path;
-    bool inheritedConst;
+    qint64 baseOffsetBits; // 当前所属结构体相对最外层结构体的起点，单位 bit。
+    QString path;         // 当前字段路径，用于生成可定位的诊断信息。
+    bool inheritedConst;  // 外层成员为 const 时，内部成员也按只读处理。
 };
 
 // 回调参数依次为当前节点、父节点、用户数据；这里不使用父节点。
@@ -181,12 +187,14 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
     return CXChildVisit_Continue;
 }
 
+// 临时保存 AST 节点供本次解析使用；释放翻译单元前必须把它转换成 StructInfo。
 struct RecordCandidate
 {
     CXCursor cursor;
     QString name;
 };
 
+// 沿语义上的父作用域向上查找，把短名 Packet 拼成 demo::Packet 或 Outer::Inner。
 QString qualifiedName(CXCursor cursor)
 {
     QStringList parts;
@@ -203,12 +211,14 @@ QString qualifiedName(CXCursor cursor)
     return parts.join(QStringLiteral("::"));
 }
 
+// 第一轮遍历只收集“有哪些结构体”，不在这里读取成员；第二轮逐个读取布局。
 CXChildVisitResult discoverRecords(CXCursor cursor, CXCursor, CXClientData data)
 {
     // TranslationUnit 也包含被 #include 引入的声明，只查找主文件中的定义。
     if (!clang_Location_isFromMainFile(clang_getCursorLocation(cursor)))
         return CXChildVisit_Continue;
 
+    // 将传入的 void* 还原为候选列表指针，再取引用，后续追加会直接更新调用方的列表。
     auto &candidates = *static_cast<QVector<RecordCandidate> *>(data);
     const CXCursorKind kind = clang_getCursorKind(cursor);
     CXCursor definition = cursor;
@@ -228,6 +238,7 @@ CXChildVisitResult discoverRecords(CXCursor cursor, CXCursor, CXClientData data)
             name = qualifiedName(cursor);
     }
     if (!name.isEmpty()) {
+        // 同一个定义可能经由别名再次访问，用节点身份去重，不只比较显示名称。
         bool duplicate = false;
         for (const RecordCandidate &candidate : candidates)
             duplicate |= bool(clang_equalCursors(candidate.cursor, definition));
@@ -242,6 +253,7 @@ CXChildVisitResult discoverRecords(CXCursor cursor, CXCursor, CXClientData data)
         ? CXChildVisit_Recurse : CXChildVisit_Continue;
 }
 
+// 每个结构体独立保存成功状态；一个候选的布局读取失败，不覆盖其他候选的结果。
 ParseResult parseRecord(const RecordCandidate &candidate)
 {
     VisitorContext context;
@@ -268,6 +280,7 @@ ParseResult parseRecord(const RecordCandidate &candidate)
 
 } // namespace
 
+// 自动发现的对外入口：每次重新读取磁盘文件，一次解析取得所有候选。
 HeaderParseResult parseHeaderStructures(const QString &filePath)
 {
     HeaderParseResult result;
@@ -361,6 +374,7 @@ HeaderParseResult parseHeaderStructures(const QString &filePath)
     return result;
 }
 
+// 便于只需要一个结构体的调用方使用：先取得全部候选，再处理唯一选择或名称匹配。
 ParseResult parseHeader(const QString &filePath, const QString &structName)
 {
     const HeaderParseResult header = parseHeaderStructures(filePath);

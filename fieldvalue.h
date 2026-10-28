@@ -3,6 +3,7 @@
 
 #include "headerparser.h"
 
+// 校验与界面分开，二进制编码和解码填回也能复用同一套数值范围规则。
 struct FieldValueValidation
 {
     bool valid = false;
@@ -10,6 +11,7 @@ struct FieldValueValidation
     QString error;
 };
 
+// 分别用于：判断能否编辑、生成初始值、生成输入提示、检查用户输入。
 bool isEditableField(const FieldInfo &field);
 QString defaultFieldValue(const FieldInfo &field);
 QString fieldValueHint(const FieldInfo &field);

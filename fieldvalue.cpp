@@ -6,8 +6,11 @@
 #include <locale>
 #include <sstream>
 
+// 本模块只检查“某种字段类型能否接受这段文字”，不读写窗口，也不修改头文件。
 namespace {
 
+// n 位有符号整数范围是 -2^(n-1) ～ 2^(n-1)-1，无符号整数范围是 0 ～ 2^n-1。
+// 64 位单独取标准库边界，避免对 64 位整数执行移位 64 位或移入有符号数的符号位。
 qint64 signedMinimum(int bits)
 {
     return bits == 64 ? std::numeric_limits<qint64>::min() : -(qint64(1) << (bits - 1));
@@ -23,6 +26,7 @@ quint64 unsignedMaximum(int bits)
     return bits == 64 ? std::numeric_limits<quint64>::max() : (quint64(1) << bits) - 1;
 }
 
+// 模板让 float、double、long double 共用一份范围检查，T 在调用时确定。
 template<typename T>
 bool inFloatingRange(long double value)
 {
@@ -62,6 +66,8 @@ QString fieldValueHint(const FieldInfo &field)
     }
 }
 
+// 输入是原始文字，输出是“是否合法 + 规范数值文字 + 出错说明”。
+// 整数一直用 64 位整数和字符串处理，避免先经过 double 造成大整数精度丢失。
 FieldValueValidation validateFieldValue(const FieldInfo &field, const QString &text)
 {
     FieldValueValidation result;
@@ -78,6 +84,7 @@ FieldValueValidation validateFieldValue(const FieldInfo &field, const QString &t
         result.value = input;
     } else if (field.valueKind == FieldValueKind::SignedInteger
                || field.valueKind == FieldValueKind::UnsignedInteger) {
+        // 正则表达式先检查整段文字的格式，^ 和 $ 分别要求匹配开头和结尾。
         static const QRegularExpression integer(QStringLiteral("^[+-]?(?:0[xX][0-9a-fA-F]+|[0-9]+)$"));
         if (!integer.match(input).hasMatch())
             return result;
@@ -88,6 +95,7 @@ FieldValueValidation validateFieldValue(const FieldInfo &field, const QString &t
         QString number = input;
         if (hexadecimal)
             number.remove(signLength, 2);
+        // Qt 的字符串转换通过 ok 告知是否成功，再按字段实际位宽检查范围。
         bool ok = false;
         if (field.valueKind == FieldValueKind::SignedInteger) {
             const qint64 value = number.toLongLong(&ok, base);

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 
+// 本模块只转换结构定义：StructInfo/FieldInfo ↔ JSON，不读取或保存字段的实例值。
 namespace {
 
 QJsonValue integer(qint64 value)
@@ -20,6 +21,7 @@ QJsonValue integer(qint64 value)
         ? QJsonValue(QString::number(value)) : QJsonValue(double(value));
 }
 
+// 将内部枚举转换为可读字符串，JSON 文件不依赖 C++ 枚举的整数编号。
 QString kindName(FieldValueKind kind)
 {
     switch (kind) {
@@ -34,6 +36,7 @@ QString kindName(FieldValueKind kind)
     }
 }
 
+// QJsonObject 表示一组键值对，QJsonArray 表示有顺序的列表；子成员仍用本函数递归转换。
 QJsonArray fieldsJson(const QVector<FieldInfo> &fields)
 {
     QJsonArray result;
@@ -65,6 +68,8 @@ QJsonArray fieldsJson(const QVector<FieldInfo> &fields)
     return result;
 }
 
+// 导入集中在此类中校验：基础类型、字段名称、大小/对齐、偏移及嵌套关系。
+// 出错路径如 $.fields[1].offsetBits，方便定位 JSON 中的具体位置。
 class DefinitionReader
 {
 public:
@@ -89,6 +94,7 @@ public:
 
     bool number(const QJsonObject &object, const QString &key, qint64 &output, const QString &path)
     {
+        // 与导出时的 integer() 对应：接受精确的 JSON 数字，或保存大整数的十进制字符串。
         const QJsonValue value = object.value(key);
         if (value.isDouble()) {
             const double n = value.toDouble();
@@ -130,6 +136,7 @@ public:
         return true;
     }
 
+    // parentSize 限定成员可占用的范围，baseOffset 用于核对绝对偏移；每深入一层就更新它们。
     bool fields(const QJsonValue &value, QVector<FieldInfo> &output, qint64 parentSize,
                 qint64 baseOffset, const QString &path, int depth = 0)
     {
@@ -236,6 +243,7 @@ public:
 
 } // namespace
 
+// 给结构定义加上版本号和目标平台，让读取方知道应该按哪套格式与布局解释。
 QJsonDocument structureDefinitionJson(const StructInfo &structure)
 {
     QJsonObject root{
@@ -256,6 +264,7 @@ bool saveStructureDefinitionJson(const StructInfo &structure, const QString &fil
 {
     if (error)
         error->clear();
+    // QSaveFile 先写临时文件，commit() 成功后再替换目标，减少保存中断造成文件损坏的风险。
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         if (error)
@@ -284,6 +293,7 @@ ParseResult parseStructureDefinitionJson(const QByteArray &bytes)
         result.diagnostics.append(QStringLiteral("结构定义 JSON 不能超过 16 MiB。"));
         return result;
     }
+    // “文本是合法 JSON”和“内容符合本程序结构定义格式”是两层检查，下面分别完成。
     QJsonParseError jsonError;
     const QJsonDocument document = QJsonDocument::fromJson(bytes, &jsonError);
     if (jsonError.error != QJsonParseError::NoError || !document.isObject()) {
@@ -327,5 +337,6 @@ ParseResult loadStructureDefinitionJson(const QString &filePath)
         result.diagnostics.append(QStringLiteral("无法读取结构定义 JSON：%1：%2").arg(filePath, file.errorString()));
         return result;
     }
+    // 多读 1 字节便于区分“恰好达到上限”和“超限”，大小错误由解析入口统一返回。
     return parseStructureDefinitionJson(file.read(16 * 1024 * 1024 + 1));
 }

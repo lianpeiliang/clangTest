@@ -32,6 +32,20 @@
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
+## 建议阅读顺序
+
+初次阅读可以先打开 `TestHeader/MinimalMsgHeader.h`，对照这个只有两个字段的样例，再按下面的顺序看源码：
+
+1. `main.cpp`：程序从这里开始，创建应用和窗口，进入 Qt 事件循环。
+2. `headerparser.h`：先认识 `FieldInfo`、`StructInfo` 和解析结果，各功能都围绕这些数据工作。
+3. `mainwindow.cpp`：先看构造函数如何创建控件、连接信号，再看 `reloadDefinition()` → `showSelectedStructure()` → `appendFields()`，理解文件到界面的流程。
+4. `headerparser.cpp`：从 `parseHeaderStructures()` 看解析入口，再看 `discoverRecords()`、`parseRecord()`、`visitField()`，理解结构体发现、布局读取和嵌套递归。
+5. `fieldvalue.cpp`：看 `validateFieldValue()`，理解字符串格式检查、数值转换及范围校验。
+6. `binaryencoder.cpp` / `binarydecoder.cpp`：看字段值如何变成字节，以及如何按偏移、位宽和字节序读回来。
+7. `definitionjson.cpp`：看结构定义如何递归转为 JSON，以及读取时怎样检查数据。
+
+常见写法：`const T &` 表示通过只读引用传参；`auto` 让编译器推导变量类型；`[this, ...](...) { ... }` 是 lambda，常用来处理 Qt 信号。`QVector` 保存顺序列表，`QHash` 按键查找数据。布局中的 `size`、`alignment` 以字节为单位，名字带 `Bits` 的偏移以 bit 为单位，1 字节 = 8 bit。
+
 ## 环境
 
 已验证的 Windows 64 位环境：

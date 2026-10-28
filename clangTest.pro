@@ -1,3 +1,4 @@
+# qmake 项目文件：声明 Qt 模块、编译选项、源码文件以及外部库依赖。
 QT += core gui widgets
 
 TEMPLATE = app
@@ -5,6 +6,7 @@ TARGET = clangTest
 CONFIG += c++11
 CONFIG -= console app_bundle
 
+# SOURCES 中的 .cpp 会参与编译；HEADERS 列出头文件，便于 Qt Creator 展示和项目管理。
 SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
 HEADERS += headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
 HEADERS += TestHeader/MsgHeader.h TestHeader/SimpleMsgHeader.h TestHeader/MinimalMsgHeader.h \

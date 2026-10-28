@@ -11,6 +11,7 @@
 #include <locale>
 #include <sstream>
 
+// 解码方向与 binaryencoder.cpp 相反：十六进制文字 → 原始字节 → 按布局读取字段值。
 namespace {
 const int maximumBytes = 1024 * 1024;
 
@@ -23,12 +24,14 @@ QString floatingText(T value)
         return std::signbit(value) ? QStringLiteral("-Infinity") : QStringLiteral("Infinity");
     std::ostringstream stream;
     stream.imbue(std::locale::classic());
+    // 输出足够多的有效数字，避免显示成文字后再填回时丢失原浮点值。
     stream << std::setprecision(std::numeric_limits<T>::max_digits10) << value;
     return QString::fromStdString(stream.str());
 }
 
 QString decodeFloating(const FieldInfo &field, QByteArray bytes, BinaryByteOrder order)
 {
+    // memcpy 按当前机器的字节序解释内存；输入与宿主顺序不同时，先反转字节。
     const bool inputLittle = order == BinaryByteOrder::LittleEndian;
     if ((QSysInfo::ByteOrder == QSysInfo::LittleEndian) != inputLittle)
         std::reverse(bytes.begin(), bytes.end());
@@ -63,6 +66,7 @@ QString decodeFloating(const FieldInfo &field, QByteArray bytes, BinaryByteOrder
     return QString();
 }
 
+// 一次解码使用一个 Decoder：共享输入字节、字节序、诊断及可填回的结果。
 struct Decoder
 {
     const QByteArray &bytes;
@@ -78,6 +82,7 @@ struct Decoder
         return false;
     }
 
+    // base 是当前分组的绝对起点，size 是该分组大小；递归时换成子结构体的范围。
     bool fields(const QVector<FieldInfo> &input, QVector<DecodedField> &output,
                 const QString &parent, qint64 base, qint64 size, int depth)
     {
@@ -114,6 +119,7 @@ struct Decoder
             decoded.offsetBits = field.absoluteOffsetBits;
             decoded.widthBits = width;
             const int first = int(field.absoluteOffsetBits / 8);
+            // 位域可能从一个字节中间开始；加 7 再整除 8，相当于向上取整。
             const int length = width == 0 ? 0 : int((field.absoluteOffsetBits % 8 + width + 7) / 8);
             decoded.bytes = bytes.mid(first, length);
             if (!field.children.isEmpty() || field.valueKind == FieldValueKind::Record) {
@@ -134,6 +140,7 @@ struct Decoder
                 if (field.isBitField && order == BinaryByteOrder::BigEndian)
                     return fail(path, QStringLiteral("位域布局来自小端目标，暂不支持按大端解析位域。"));
                 quint64 value = 0;
+                // 根据字节序找出每一位在输入中的位置，再拼回一个无符号整数。
                 for (int bit = 0; bit < field.valueBits; ++bit) {
                     const qint64 absolute = field.absoluteOffsetBits + bit;
                     const int byte = order == BinaryByteOrder::LittleEndian
@@ -147,6 +154,7 @@ struct Decoder
                         decoded.note = QStringLiteral("非规范 bool 字节：按非零为 true 解释，填回后规范为 1。");
                 } else if (field.valueKind == FieldValueKind::SignedInteger
                            && (value & (quint64(1) << (field.valueBits - 1)))) {
+                    // 最高有效位为 1 表示补码负数；先算绝对值，避免最小负数取反溢出。
                     const quint64 magnitude = field.valueBits == 64 ? (~value + 1)
                         : (quint64(1) << field.valueBits) - value;
                     decoded.value = QLatin1Char('-') + QString::number(magnitude);
@@ -161,6 +169,7 @@ struct Decoder
                     return fail(path, QStringLiteral("当前宿主不支持此浮点格式/字节序，或浮点编码无效。"));
             }
             if (isEditableField(field)) {
+                // 能显示的数值不一定能填回，例如 NaN；填回仍须通过与手动输入相同的校验。
                 if (validateFieldValue(field, decoded.value).valid)
                     result.editableValues.insert(path, decoded.value);
                 else
@@ -181,6 +190,7 @@ BinaryResult parseHexBytes(const QString &text)
         result.diagnostics.append(QStringLiteral("十六进制文本过大（上限 8 MiB 字符，数据上限 1 MiB）。"));
         return result;
     }
+    // 先按空白/逗号切段，再验证每段；确认合法后才用 fromHex 转成真正的字节。
     const QStringList tokens = text.split(QRegularExpression(QStringLiteral("[\\s,]+")), QString::SkipEmptyParts);
     static const QRegularExpression hex(QStringLiteral("^[0-9a-fA-F]+$"));
     for (int i = 0; i < tokens.size(); ++i) {
@@ -206,6 +216,7 @@ BinaryResult parseHexBytes(const QString &text)
     return result;
 }
 
+// 对外入口先检查整个结构体和数据长度，再进入成员递归；失败时清除部分结果。
 DecodeResult decodeStructure(const StructInfo &structure, const QByteArray &bytes, BinaryByteOrder order)
 {
     Decoder decoder(bytes, order);

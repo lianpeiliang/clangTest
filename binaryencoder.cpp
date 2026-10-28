@@ -8,11 +8,15 @@
 #include <locale>
 #include <sstream>
 
+// 编码方向：字段路径对应的输入文字 → 数值校验 → 按布局写入字节 → 显示十六进制。
+// 大小和偏移使用解析器的结果；本模块不通过“逐个字段相加”来猜测布局。
 namespace {
 
 // 预览会生成较长的文本，限制内存和界面开销。
 const qint64 maximumPreviewBytes = 1024 * 1024;
 
+// 按 bit 写入可以同时支持普通字段和不足一个字节的位域。
+// written 与结果等长，每个置 1 的位表示该位置已经由某个字段占用，用于检查重叠。
 bool writeBits(BinaryResult &result, QByteArray &written, const QString &path,
                qint64 offset, int count, const QByteArray &source)
 {
@@ -23,6 +27,7 @@ bool writeBits(BinaryResult &result, QByteArray &written, const QString &path,
         return false;
     }
     for (int bit = 0; bit < count; ++bit) {
+        // 除以 8 得到字节下标，模 8 得到字节内的位序号；mask 只选中其中一位。
         const int byte = int((offset + bit) / 8);
         const unsigned mask = 1u << ((offset + bit) % 8);
         if (static_cast<unsigned char>(written.at(byte)) & mask) {
@@ -54,6 +59,7 @@ QByteArray floatingBytes(const QString &text, long double validatedValue)
         return QByteArray();
     UInt bits = 0;
     static_assert(sizeof(value) == sizeof(bits), "Unexpected floating point width");
+    // memcpy 复制浮点数的原始位模式，而不是像整数强制转换那样改变数值表示。
     std::memcpy(&bits, &value, sizeof(bits));
     QByteArray bytes(sizeof(bits), '\0');
     for (unsigned i = 0; i < sizeof(bits); ++i)
@@ -90,6 +96,7 @@ QByteArray encodeFloating(const FieldInfo &field, const QString &text)
     return QByteArray();
 }
 
+// 递归遍历成员树。路径负责找到用户输入，absoluteOffsetBits 负责定位最终字节。
 void encodeFields(BinaryResult &result, QByteArray &written, const QVector<FieldInfo> &fields,
                   const QHash<QString, QString> &values, const QString &parentPath)
 {
@@ -137,6 +144,8 @@ void encodeFields(BinaryResult &result, QByteArray &written, const QVector<Field
                 ? quint64(validation.value == QLatin1String("true"))
                 : field.valueKind == FieldValueKind::SignedInteger
                     ? static_cast<quint64>(validation.value.toLongLong()) : validation.value.toULongLong();
+            // 每次右移 8 位，依次取出低位字节，实现小端序；位域只写入所需的有效位。
+            // 有符号负数转为 quint64 后，保留所需的低位即可得到对应的补码表示。
             QByteArray bytes(8, '\0');
             for (int i = 0; i < 8; ++i)
                 bytes[i] = char((value >> (i * 8)) & 0xff);
@@ -165,6 +174,7 @@ BinaryResult encodeStructure(const StructInfo &structure, const QHash<QString, Q
         result.diagnostics.append(QStringLiteral("结构体大小无效或超过预览上限（1 MiB）。"));
         return result;
     }
+    // 先把整个缓冲区清零，再写有效字段，因此没有被写到的填充区域自然保持为 0。
     result.bytes = QByteArray(int(structure.size), '\0');
     QByteArray written(int(structure.size), '\0');
     encodeFields(result, written, structure.fields, values, QString());
