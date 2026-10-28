@@ -1,6 +1,6 @@
 # clangTest
 
-一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，支持通过 libclang 解析 C++ 头文件，或直接加载本程序的结构定义 JSON；统一显示成员树和内存布局，并支持基础类型字段赋值，默认解析 `MsgHeader`。
+一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，支持通过 libclang 自动发现 C++ 头文件中的结构体，或直接加载本程序的结构定义 JSON；统一显示成员树和内存布局，并支持基础类型字段赋值。启动时默认打开 `TestHeader/MsgHeader.h`，无需输入结构体名称。
 
 ## 项目文件
 
@@ -14,17 +14,21 @@
 | `binaryencoder.h / .cpp` | 按目标布局编码当前字段值，并格式化十六进制预览 |
 | `binarydecoder.h / .cpp` | 校验十六进制输入，按已导入布局和字节序解析字段 |
 | `definitionjson.h / .cpp` | 导出及校验加载结构定义 JSON，使用 QSaveFile 保存 |
-| `MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
-| `SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
-| `MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
-| `PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
-| `NestedPacketHeader.h` | 嵌套样例，`NestedPacketHeader` 包含 `PacketAddress` 类型的成员，使用 1 字节打包 |
+| `TestHeader/MsgHeader.h` | 待解析的结构体定义，使用 `#pragma pack(push, 1)` |
+| `TestHeader/SimpleMsgHeader.h` | 只有 3 个基础类型字段的简单对比样例，同样使用 1 字节打包 |
+| `TestHeader/MinimalMsgHeader.h` | 只有 2 个字段的最小样例，使用默认对齐 |
+| `TestHeader/PacketHeader.h` | 不同名称的样例，定义 `PacketHeader`，包含 3 个字段，使用 1 字节打包 |
+| `TestHeader/NestedPacketHeader.h` | 嵌套样例，`NestedPacketHeader` 包含 `PacketAddress` 类型的成员，使用 1 字节打包 |
+| `TestHeader/MultiStructHeader.h` | 包含 20 个结构体的自动发现与下拉选择样例 |
+| `tests/discovery-tests.pro` | 单个/20 个结构体、名称限定、自动选择及重载的回归检查 |
 | `tests/nested-tests.pro` | 嵌套解析、偏移累计和树形界面的回归检查 |
 | `tests/value-tests.pro` | 字段赋值、数值范围、只读类型和内存保存的回归检查 |
 | `tests/binary-tests.pro` | 二进制与原生 C++ 内存布局比对，以及十六进制预览检查 |
 | `tests/decoder-tests.pro` | 十六进制格式、大小端解析、数值边界、嵌套映射和填回界面检查 |
 | `tests/definition-tests.pro` | 结构定义 JSON、嵌套元数据、不含值及导出保存检查 |
 | `tests/json-import-tests.pro` | JSON 导入、格式和布局校验、双来源界面和二进制一致性检查 |
+
+测试和示例头文件统一放在 `TestHeader/` 目录，便携包及随包源码也保留同名目录。
 
 `build/` 和 `*.pro.user` 已加入 Git 忽略规则。
 
@@ -60,7 +64,7 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 
 ## 窗口操作
 
-- 启动时默认解析 `MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
+- 启动时默认解析 `TestHeader/MsgHeader.h`，上方显示结构体名称、字段数量、总大小和结构体对齐。
 - 树形控件显示字段名称、声明类型、展开别名后的类型、大小、自然对齐及偏移。根节点为所选结构体，成员按层级显示，可点击箭头展开、折叠，或使用 **全部展开 / 全部折叠**。
 - 同时显示相对直接所属结构体和相对最外层结构体的偏移，均提供字节和 bit 两种表示；位域的字节偏移保留不足一个字节的 bit 部分。
 - 在 **值** 列直接编辑基础类型字段；布尔值使用下拉框。嵌套结构体作为分组，展开后可分别填写内部字段。
@@ -68,16 +72,24 @@ MSYS2 的 `bin` 目录需要位于原 PATH 前面，使 libclang、LLVM 和新�
 - 点击 **解析十六进制…**，输入字节并选择大小端，按当前结构体布局查看字段原始字节和解析值；可填入主窗口的可编辑字段。
 - 修改并保存头文件后，点击 **重新加载** 更新结果。
 - 点击 **打开结构定义…** 选择头文件或本程序导出的 `.json`，也可直接修改路径并按回车。界面显示来源和当前目标平台。
-- **结构体名称** 在头文件模式下默认填入 `MsgHeader`，可修改并按回车或点击 **重新加载** 生效。程序按名称精确查找主文件中的 struct 定义，不查找 `#include` 引入的结构体；名称不能为空，输入两端空白会被忽略。在 JSON 模式下，该名称从文件读取并只读显示；切回头文件时恢复上次使用的查找名称。
+- **选择结构体** 自动列出主头文件中的 struct 定义，上方显示发现数量。只有一个时直接加载；有多个时默认显示声明顺序中的第一个，使用下拉框即可切换，无需输入名称。同一头文件重新加载时保留仍存在的选择；从 JSON 切回上次头文件时也尽量恢复选择。在 JSON 模式下显示文件中的结构体名称，下拉框不可切换。
 - 解析失败时清空旧树，并在下方显示错误原因；修正文件后可再次解析。
 
 libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗口显示。解析资源释放后，界面仍可安全使用这些普通 Qt 数据。
 
-对比测试时，用 **打开结构定义…** 分别选择 `MsgHeader.h`（21 个字段、83 字节）、`SimpleMsgHeader.h`（3 个字段、7 字节）或 `MinimalMsgHeader.h`（2 个字段、4 字节）。最小样例使用默认对齐，两个字段偏移为 0、2 字节，可观察到中间的填充。各文件都定义名为 `MsgHeader` 的结构体，应分别解析，不要在同一个源文件中同时包含这些头文件。
+对比测试时，用 **打开结构定义…** 分别选择 `TestHeader/MsgHeader.h`（21 个字段、83 字节）、`TestHeader/SimpleMsgHeader.h`（3 个字段、7 字节）或 `TestHeader/MinimalMsgHeader.h`（2 个字段、4 字节）。最小样例使用默认对齐，两个字段偏移为 0、2 字节，可观察到中间的填充。各文件都定义名为 `MsgHeader` 的结构体，应分别解析，不要在同一个源文件中同时包含这些头文件。
 
-验证其他结构体名称时，打开 `PacketHeader.h`，将 **结构体名称** 改为 `PacketHeader`，按回车或点击 **重新加载**。预期显示 `sequence`、`payloadLength`、`flags` 三个字段，偏移分别为 0、4、6 字节，总大小 7 字节，对齐 1 字节。
+验证单个结构体时，打开 `TestHeader/PacketHeader.h`，程序直接识别并加载 `PacketHeader`。预期显示 `sequence`、`payloadLength`、`flags` 三个字段，偏移分别为 0、4、6 字节，总大小 7 字节，对齐 1 字节。
 
-验证嵌套结构体时，打开 `NestedPacketHeader.h`，将 **结构体名称** 设为 `NestedPacketHeader`。预期显示 `sequence`、`address`、`payloadLength` 三个直接字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。展开 `address` 可看到 `source`、`destination`：相对偏移分别为 0、2 字节，绝对偏移分别为 4、6 字节。也可将名称改为 `PacketAddress` 单独解析。
+验证多个结构体时，打开 `TestHeader/MultiStructHeader.h`，应发现 20 个结构体，依次列出 `Packet01`～`Packet20`，选择后立即显示对应字段。结构体数量没有固定为 20。
+
+验证嵌套结构体时，打开 `TestHeader/NestedPacketHeader.h`，下拉框会列出 `PacketAddress` 和 `NestedPacketHeader`。选择 `NestedPacketHeader` 后，预期显示 `sequence`、`address`、`payloadLength` 三个直接字段，偏移分别为 0、4、8 字节，总大小 10 字节，对齐 1 字节。展开 `address` 可看到 `source`、`destination`：相对偏移分别为 0、2 字节，绝对偏移分别为 4、6 字节。也可选择 `PacketAddress` 单独查看。
+
+自动发现仅列出当前主文件中有定义的 struct，包括命名空间、外层类型中的命名结构体，以及 `typedef struct { ... } Name`；普通 `typedef` / `using` 别名不重复列出。同名类型使用 `a::Packet`、`b::Packet` 这样的完整名称区分。前置声明、被包含文件中的独立定义、注释、未启用的条件编译分支、函数局部类型、未实例化模板和没有名称的匿名成员不列为候选。按值嵌套字段仍可展开被包含文件中的类型。
+
+每次打开或重新加载头文件只创建一个 libclang 翻译单元，复制各结构体的布局后释放解析资源；下拉切换使用本次加载的结果。某个结构体无法读取布局时，选择它会显示诊断，其他布局正常的结构体仍可使用；文件存在语法/语义错误时整体加载失败。
+
+代码接口 `parseHeaderStructures(path)` 返回全部候选及各自的布局状态；`parseHeader(path)` 自动解析唯一结构体，存在多个时返回候选名称及选择提示。原有 `parseHeader(path, name)` 仍支持完整名称或无歧义的短名称。
 
 按值嵌套的记录类型会递归展开，包括经过 `typedef` / `using` 别名的类型；嵌套类型可定义在被包含的头文件中。指针、引用和数组保持为叶子节点，不追踪其指向对象或展开数组元素。顶部字段数量仅统计所选结构体的直接字段。
 
@@ -118,7 +130,7 @@ libclang 的查询结果先复制到 `StructInfo` 和 `FieldInfo`，再交给窗
 
 输入可以连续书写（`78563412`），也可以用空格、换行、Tab 或逗号分隔（`78 56 34 12`、`0x78, 0x56, 0x34, 0x12`）。每段须为偶数位十六进制字符，前缀 `0x` 大小写均可。输入表示按顺序排列的字节，`0x1234` 表示字节 `12 34`。不接受偏移地址、ASCII 栏、冒号或非法字符；复制已有预览时请使用 **复制十六进制** 按钮。
 
-例如加载 `NestedPacketHeader.h`，名称设为 `NestedPacketHeader`，输入：
+例如加载 `TestHeader/NestedPacketHeader.h`，在下拉框中选择 `NestedPacketHeader`，输入：
 
 ```text
 78 56 34 12 22 11 44 33 66 55
@@ -172,7 +184,7 @@ Set-Location build
 
 ## 解析结果
 
-程序默认读取项目中的 `MsgHeader.h`，解析目标为 `x86_64-w64-windows-gnu`。启用 `pack(1)` 时：
+程序默认读取项目中的 `TestHeader/MsgHeader.h`，解析目标为 `x86_64-w64-windows-gnu`。启用 `pack(1)` 时：
 
 | 字段 | 声明类型 | 大小（字节） | 偏移（字节） |
 | --- | --- | ---: | ---: |
@@ -202,7 +214,7 @@ Set-Location build
 
 这些值由 libclang 的 AST 和布局查询 API 读取。成员树同时显示字节偏移和原始 bit 偏移；字段的类型对齐值表示自然对齐，可能大于结构体的打包对齐值。
 
-头文件在运行时解析，修改其内容后直接重新运行即可。也可以传入其他包含 `MsgHeader` 定义的头文件：
+头文件在运行时解析，修改其内容后点击 **重新加载** 即可。也可以传入其他头文件，结构体名称会自动识别：
 
 ```powershell
 .\clangTest.exe C:/path/to/other.h
@@ -223,6 +235,8 @@ Remove-Item Env:QT_QPA_PLATFORM
 ```
 
 检查覆盖普通结构体、多层嵌套、类型别名、累计偏移、位域、被包含文件中的嵌套类型、指针/引用/数组不展开、树形节点展开折叠，以及重新加载和错误后的清空。
+
+自动发现检查采用相同构建方式，将项目文件换为 `tests/discovery-tests.pro`，在独立目录构建并运行 `discovery-tests.exe`。覆盖单个及 20 个结构体、命名空间同名、嵌套定义、匿名 typedef、别名去重、主文件过滤、前置声明、条件编译、布局失败隔离、下拉切换、值重置、重载及 JSON 模式。
 
 赋值检查使用独立构建目录。在项目根目录执行：
 
@@ -267,4 +281,4 @@ Qt Creator 中的配置方法见上文“在 Qt Creator 中运行”。仅链接
 
 输出为 `dist/clangTest-windows-x64.zip`，校验文件为同目录下的 `.zip.sha256`。将 ZIP 作为 GitHub Release 附件上传即可。
 
-使用者只需完整解压，再双击 `clangTest.exe`，无需配置 Qt、Clang 或 PATH。程序会优先读取 `samples/MsgHeader.h`，并使用 `runtime/` 内的标准库及 Clang 内置头文件进行解析。
+使用者只需完整解压，再双击 `clangTest.exe`，无需配置 Qt、Clang 或 PATH。程序会优先读取 `TestHeader/MsgHeader.h`，并使用 `runtime/` 内的标准库及 Clang 内置头文件进行解析。

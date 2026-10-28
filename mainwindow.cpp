@@ -21,6 +21,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <functional>
@@ -343,11 +344,12 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     layout->addWidget(m_sourceInfo);
 
     auto *nameRow = new QHBoxLayout;
-    auto *nameLabel = new QLabel(QStringLiteral("结构体名称："), this);
+    auto *nameLabel = new QLabel(QStringLiteral("选择结构体："), this);
     nameRow->addWidget(nameLabel);
-    m_structName = new QLineEdit(QStringLiteral("MsgHeader"), this);
-    m_structName->setObjectName(QStringLiteral("structNameInput"));
-    m_structName->setPlaceholderText(QStringLiteral("头文件模式：输入结构体名称，按回车加载"));
+    m_structName = new QComboBox(this);
+    m_structName->setObjectName(QStringLiteral("structSelector"));
+    m_structName->setMinimumContentsLength(24);
+    m_structName->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     nameLabel->setBuddy(m_structName);
     nameRow->addWidget(m_structName, 1);
     auto *expandButton = new QPushButton(QStringLiteral("全部展开"), this);
@@ -434,7 +436,8 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     // 按钮只触发“重新读取文件并刷新界面”，不参与 libclang 的 AST 遍历。
     connect(reloadButton, &QPushButton::clicked, this, [this] { reloadDefinition(); });
     connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadDefinition(); });
-    connect(m_structName, &QLineEdit::returnPressed, this, [this] { reloadDefinition(); });
+    connect(m_structName, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this] { showSelectedStructure(); });
     connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
     connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
     connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
@@ -454,37 +457,60 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
 
 void MainWindow::reloadDefinition()
 {
+    const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
+    m_loadedPath = QFileInfo(path).absoluteFilePath();
+    m_jsonMode = QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0;
+    const QSignalBlocker blocker(m_structName);
+    m_structName->clear();
+    m_structures.clear();
+    m_fileDiagnostics.clear();
+    if (m_jsonMode) {
+        const ParseResult result = loadStructureDefinitionJson(path);
+        m_fileDiagnostics = result.diagnostics;
+        if (result.success) {
+            m_structures.append(result);
+            m_structName->addItem(result.structure.name);
+        }
+    } else {
+        const HeaderParseResult result = parseHeaderStructures(path);
+        m_fileDiagnostics = result.diagnostics;
+        m_structures = result.structures;
+        for (const ParseResult &structure : m_structures)
+            m_structName->addItem(structure.structure.name);
+        // 同一头文件重载或从 JSON 切回时，尽量保持原选择；新文件默认选择第一项。
+        const int previous = m_headerPath == m_loadedPath
+            ? m_structName->findText(m_headerStructName) : -1;
+        if (previous >= 0)
+            m_structName->setCurrentIndex(previous);
+    }
+    m_structName->setEnabled(!m_jsonMode && m_structures.size() > 1);
+    m_structName->setToolTip(m_jsonMode ? QStringLiteral("结构体名称来自 JSON 文件。")
+        : QStringLiteral("自动发现主头文件中的结构体；选择后立即显示字段，无需输入名称。"));
+    showSelectedStructure();
+}
+
+void MainWindow::showSelectedStructure()
+{
     if (auto *dialog = findChild<QDialog *>(QStringLiteral("hexDecodeDialog")))
         dialog->close();
-    const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
-    const bool jsonMode = QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0;
-    const bool wasJsonMode = m_structName->isReadOnly();
-    if (!wasJsonMode)
-        m_headerStructName = m_structName->text().trimmed();
-    m_structName->setReadOnly(jsonMode);
-    m_structName->setToolTip(jsonMode ? QStringLiteral("结构体名称来自 JSON 文件，只读显示。")
-                                    : QStringLiteral("输入主头文件中要解析的结构体名称。"));
+    const int index = m_structName->currentIndex();
     ParseResult result;
-    if (jsonMode) {
-        result = loadStructureDefinitionJson(path);
-        m_structName->setText(result.success ? result.structure.name : QString());
-    } else {
-        if (wasJsonMode)
-            m_structName->setText(m_headerStructName);
-        const QString name = m_structName->text().trimmed();
-        if (name.isEmpty())
-            result.diagnostics.append(QStringLiteral("请输入要解析的结构体名称，例如 MsgHeader。"));
-        else
-            result = parseHeader(path, name);
+    if (index >= 0 && index < m_structures.size())
+        result = m_structures.at(index);
+    result.diagnostics = m_fileDiagnostics + (m_jsonMode ? QStringList() : result.diagnostics);
+    const QString structName = m_structName->currentText();
+    if (!m_jsonMode && index >= 0) {
+        m_headerPath = m_loadedPath;
+        m_headerStructName = structName;
     }
-    const QString structName = result.success ? result.structure.name : m_structName->text().trimmed();
-    m_sourceInfo->setText((jsonMode ? QStringLiteral("来源：结构定义 JSON") : QStringLiteral("来源：头文件解析"))
+    m_sourceInfo->setText((m_jsonMode ? QStringLiteral("来源：结构定义 JSON")
+                                    : QStringLiteral("来源：头文件解析    |    发现 %1 个结构体").arg(m_structures.size()))
                          + (result.success ? QStringLiteral("    |    目标：Windows x64 / MinGW，小端序")
                                            : QStringLiteral("    |    加载失败")));
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
     m_fields->clear();
-    const QString source = QFileInfo(path).absoluteFilePath() + QLatin1Char('\n') + structName;
+    const QString source = m_loadedPath + QLatin1Char('\n') + structName;
     const QHash<QString, QString> previousValues = source == m_valuesSource
         ? m_fieldValues : QHash<QString, QString>();
     m_fieldValues.clear();
@@ -502,7 +528,7 @@ void MainWindow::reloadDefinition()
     if (!result.success) {
         m_structureName->setText(QStringLiteral("加载失败"));
         m_summary->setText(QStringLiteral("尚无可显示的结构体信息"));
-        m_status->setText(QStringLiteral("请检查结构定义文件、结构体名称和下方诊断信息，修正后点击“重新加载”。"));
+        m_status->setText(QStringLiteral("请检查结构定义文件和下方诊断信息，修正后点击“重新加载”；也可选择其他结构体。"));
         return;
     }
 

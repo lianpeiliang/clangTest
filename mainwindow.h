@@ -6,6 +6,7 @@
 #include "headerparser.h"
 
 class QLabel;
+class QComboBox;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
@@ -23,6 +24,7 @@ public:
 
 private:
     void reloadDefinition();
+    void showSelectedStructure();
     void appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields,
                       const QString &parentPath, const QHash<QString, QString> &previousValues);
     void updateValueStatus();
@@ -31,7 +33,7 @@ private:
     void exportDefinitionJson();
 
     QLineEdit *m_filePath;
-    QLineEdit *m_structName;
+    QComboBox *m_structName;
     QLabel *m_structureName;
     QLabel *m_summary;
     QLabel *m_sourceInfo;
@@ -48,7 +50,12 @@ private:
     StructInfo m_parsedStructure;
     QStringList m_parseDiagnostics;
     bool m_hasStructure = false;
-    QString m_headerStructName = QStringLiteral("MsgHeader");
+    QVector<ParseResult> m_structures;
+    QStringList m_fileDiagnostics;
+    QString m_loadedPath;
+    bool m_jsonMode = false;
+    QString m_headerPath;
+    QString m_headerStructName;
     QString m_lastHexInput;
     int m_lastHexByteOrder = 0;
 };

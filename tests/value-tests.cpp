@@ -125,11 +125,10 @@ int main(int argc, char **argv)
     CHECK(accepts("extended", "1e4000") && !accepts("extended", "1e5000"));
 
     MainWindow window(sourcePath);
-    QLineEdit *name = window.findChild<QLineEdit *>("structNameInput");
+    QComboBox *name = window.findChild<QComboBox *>("structSelector");
     QLineEdit *filePath = window.findChild<QLineEdit *>("headerFilePath");
     QTreeWidget *tree = window.findChild<QTreeWidget *>("fieldsTree");
-    name->setText("Values");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    name->setCurrentText("Values");
     CHECK(tree->columnCount() == 10 && tree->topLevelItemCount() == 1);
     QTreeWidgetItem *root = tree->topLevelItem(0);
     auto editor = [tree, &root](const QString &path) {
@@ -161,14 +160,14 @@ int main(int argc, char **argv)
     editor("destination.code")->setText("456");
     CHECK(window.fieldValues().value("address.code") == "0x7B");
     CHECK(window.fieldValues().value("destination.code") == "456");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(QMetaObject::invokeMethod(filePath, "returnPressed"));
     root = tree->topLevelItem(0);
     CHECK(window.fieldValues().value("enabled") == "true");
     CHECK(editor("wide")->text() == "0xFFFFFFFFFFFFFFFF");
     CHECK(editor("address.code")->text() == "0x7B");
     CHECK(editor("byte")->text() == "12");
     CHECK(writeSource(sourcePath, QByteArray(source).replace("unsigned char byte;", "unsigned byte:2;")));
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(QMetaObject::invokeMethod(filePath, "returnPressed"));
     root = tree->topLevelItem(0);
     CHECK(editor("byte")->text() == "0"); // 类型变化后重新校验，旧值超范围则初始化。
     CHECK(editor("address.code")->text() == "0x7B");
@@ -178,16 +177,15 @@ int main(int argc, char **argv)
     if (app.arguments().size() > 1)
         CHECK(window.grab().save(app.arguments().at(1)));
 
-    name->setText("Address");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    name->setCurrentText("Address");
     CHECK(!window.fieldValues().contains("address.code") && window.fieldValues().value("code") == "0");
     const QString otherPath = temporary.path() + "/Other.h";
     CHECK(writeSource(otherPath, "struct Address { short code; };"));
     filePath->setText(otherPath);
     CHECK(QMetaObject::invokeMethod(filePath, "returnPressed"));
     CHECK(window.fieldValues().value("code") == "0");
-    name->setText("Missing");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(writeSource(otherPath, "struct Forward;"));
+    CHECK(QMetaObject::invokeMethod(filePath, "returnPressed"));
     CHECK(tree->topLevelItemCount() == 0 && window.fieldValues().isEmpty());
     QTextStream(stdout) << "PASS: decimal/hex integer and bitfield limits, 64-bit precision, floating formats/ranges,"
                           " bool dropdown, readonly types, nested paths, validation feedback and reload\n";

@@ -2,6 +2,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDebug>
 #include <QFile>
 #include <QFontDatabase>
@@ -32,14 +33,14 @@ int main(int argc, char **argv)
         app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));
     }
 #endif
-    const QString project = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
-    const ParseResult flat = parseHeader(project + "/MsgHeader.h");
+    const QString testHeaders = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
+    const ParseResult flat = parseHeader(testHeaders + "/MsgHeader.h");
     CHECK(flat.success && flat.structure.fields.size() == 21);
     CHECK(flat.structure.size == 83 && flat.structure.alignment == 1);
     CHECK(flat.structure.fields.last().absoluteOffsetBits == 632);
     CHECK(flat.structure.fields.last().children.isEmpty());
 
-    const QString nestedPath = project + "/NestedPacketHeader.h";
+    const QString nestedPath = testHeaders + "/NestedPacketHeader.h";
     const ParseResult nested = parseHeader(nestedPath, "NestedPacketHeader");
     CHECK(nested.success && nested.structure.fields.size() == 3);
     CHECK(nested.structure.size == 10 && nested.structure.alignment == 1);
@@ -92,13 +93,12 @@ int main(int argc, char **argv)
     CHECK(!parseHeader(including, "Included").success);
 
     MainWindow window(nestedPath);
-    QLineEdit *name = window.findChild<QLineEdit *>("structNameInput");
+    QComboBox *name = window.findChild<QComboBox *>("structSelector");
     QLineEdit *path = window.findChild<QLineEdit *>("headerFilePath");
     QTreeWidget *tree = window.findChild<QTreeWidget *>("fieldsTree");
     CHECK(name && path && tree);
-    CHECK(name->text() == "MsgHeader" && tree->topLevelItemCount() == 0);
-    name->setText("  NestedPacketHeader  ");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(name->count() == 2 && tree->topLevelItemCount() == 1);
+    name->setCurrentText("NestedPacketHeader");
     CHECK(tree->topLevelItemCount() == 1);
     QTreeWidgetItem *root = tree->topLevelItem(0);
     CHECK(root->text(0) == "NestedPacketHeader" && root->childCount() == 3);
@@ -124,23 +124,19 @@ int main(int argc, char **argv)
         CHECK(window.grab().save(app.arguments().at(1)));
 
     path->setText(fixture);
-    name->setText("BitRoot");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(QMetaObject::invokeMethod(path, "returnPressed"));
+    name->setCurrentText("BitRoot");
     QTreeWidgetItem *bitItem = tree->topLevelItem(0)->child(1)->child(1);
     CHECK(bitItem->text(6) == "0 + 3 bit" && bitItem->text(7) == "1 + 3 bit");
-    name->setText("Missing");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
-    CHECK(tree->topLevelItemCount() == 0);
-    name->setText(" ");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(writeSource(fixture, "struct Forward;"));
+    window.findChild<QPushButton *>("reloadDefinitionButton")->click();
     CHECK(tree->topLevelItemCount() == 0);
     CHECK(!window.findChild<QPlainTextEdit *>()->toPlainText().isEmpty());
     CHECK(writeSource(fixture, "struct MsgHeader { UnknownType broken; };"));
     CHECK(!parseHeader(fixture).success);
     CHECK(!parseHeader(temporary.path() + "/missing.h").success);
-    path->setText(project + "/MsgHeader.h");
-    name->setText("MsgHeader");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    path->setText(testHeaders + "/MsgHeader.h");
+    CHECK(QMetaObject::invokeMethod(path, "returnPressed"));
     CHECK(tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->childCount() == 21);
     QTextStream(stdout) << "PASS: flat/nested layouts, aliases, deep offsets, pointer/reference/array leaves,"
                           " bitfields, included types, tree expansion, reload and errors\n";

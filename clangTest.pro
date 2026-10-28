@@ -6,7 +6,9 @@ CONFIG += c++11
 CONFIG -= console app_bundle
 
 SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
-HEADERS += MsgHeader.h SimpleMsgHeader.h MinimalMsgHeader.h PacketHeader.h NestedPacketHeader.h headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
+HEADERS += headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
+HEADERS += TestHeader/MsgHeader.h TestHeader/SimpleMsgHeader.h TestHeader/MinimalMsgHeader.h \
+           TestHeader/PacketHeader.h TestHeader/NestedPacketHeader.h TestHeader/MultiStructHeader.h
 
 # MSYS2 MINGW64 安装目录，可用 qmake LIBCLANG_ROOT=C:/path/to/mingw64 覆盖。
 isEmpty(LIBCLANG_ROOT): LIBCLANG_ROOT = D:/msys64/mingw64
@@ -18,4 +20,4 @@ QMAKE_CXXFLAGS += -idirafter $$shell_quote($$LIBCLANG_ROOT/include)
 LIBS += "$$LIBCLANG_ROOT/lib/libclang.dll.a"
 # 将工具链目录及默认待解析头文件路径作为字符串宏传入程序。
 DEFINES += LIBCLANG_ROOT=\\\"$$LIBCLANG_ROOT\\\"
-DEFINES += MSG_HEADER_PATH=\\\"$$PWD/MsgHeader.h\\\"
+DEFINES += MSG_HEADER_PATH=\\\"$$PWD/TestHeader/MsgHeader.h\\\"

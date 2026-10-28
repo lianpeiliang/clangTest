@@ -36,8 +36,8 @@ int main(int argc, char **argv)
     }
     CHECK(!parseHexBytes(QString(2 * 1024 * 1024 + 2, 'A')).success);
 
-    const QString project = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
-    const ParseResult nested = parseHeader(project + "/NestedPacketHeader.h", "NestedPacketHeader");
+    const QString testHeaders = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
+    const ParseResult nested = parseHeader(testHeaders + "/NestedPacketHeader.h", "NestedPacketHeader");
     CHECK(nested.success);
     const DecodeResult decoded = decodeStructure(nested.structure, known);
     const QHash<QString, QString> expected{

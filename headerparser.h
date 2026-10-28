@@ -45,8 +45,19 @@ struct ParseResult
     QStringList diagnostics;
 };
 
-// 每次调用都重新读取磁盘文件，查找指定名称的 struct 并递归读取按值嵌套的成员。
+struct HeaderParseResult
+{
+    bool success = false; // 文件解析成功且发现至少一个结构体；各结构体的布局状态单独保存。
+    QVector<ParseResult> structures; // 按声明顺序，名称包含命名空间/外层类型限定。
+    QStringList diagnostics; // 文件级诊断。
+};
+
+// 一次解析，自动发现主文件中的 struct 定义，并递归读取按值嵌套的成员。
+HeaderParseResult parseHeaderStructures(const QString &filePath);
+
+// 名称为空时自动选择唯一结构体；有多个时返回候选名称，避免猜测调用方的目标。
+// 可传完整限定名，或没有歧义的短名称，兼容原有按名称解析的调用。
 ParseResult parseHeader(const QString &filePath,
-                        const QString &structName = QStringLiteral("MsgHeader"));
+                        const QString &structName = QString());
 
 #endif

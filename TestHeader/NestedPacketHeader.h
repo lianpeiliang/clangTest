@@ -1,8 +1,8 @@
 #ifndef NESTEDPACKETHEADER_H
 #define NESTEDPACKETHEADER_H
 
-// 嵌套结构体样例：将“结构体名称”设为 NestedPacketHeader 后解析。
-// 也可改为 PacketAddress，单独查看地址结构体的字段。
+// 嵌套结构体样例：打开后自动发现两个结构体，下拉选择 NestedPacketHeader。
+// 也可选择 PacketAddress，单独查看地址结构体的字段。
 #pragma pack(push, 1)
 
 struct PacketAddress

@@ -3,6 +3,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDialog>
 #include <QFile>
 #include <QFileDialog>
@@ -54,18 +55,18 @@ int main(int argc, char **argv)
         app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));
     }
 #endif
-    const QString project = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
+    const QString testHeaders = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
     for (const QString &file : {"MsgHeader.h", "SimpleMsgHeader.h", "MinimalMsgHeader.h", "PacketHeader.h", "NestedPacketHeader.h"}) {
         const QString name = file == "PacketHeader.h" ? "PacketHeader"
             : file == "NestedPacketHeader.h" ? "NestedPacketHeader" : "MsgHeader";
-        const ParseResult parsed = parseHeader(project + '/' + file, name);
+        const ParseResult parsed = parseHeader(testHeaders + '/' + file, name);
         CHECK(parsed.success);
         const QJsonDocument definition = structureDefinitionJson(parsed.structure);
         const ParseResult imported = parseStructureDefinitionJson(definition.toJson());
         CHECK(imported.success);
         CHECK(structureDefinitionJson(imported.structure) == definition);
     }
-    const ParseResult nested = parseHeader(project + "/NestedPacketHeader.h", "NestedPacketHeader");
+    const ParseResult nested = parseHeader(testHeaders + "/NestedPacketHeader.h", "NestedPacketHeader");
     const QJsonObject root = structureDefinitionJson(nested.structure).object();
     CHECK(!parseStructureDefinitionJson("{").success);
     CHECK(!parseStructureDefinitionJson("[]").success);
@@ -139,28 +140,28 @@ int main(int argc, char **argv)
 
     MainWindow window(jsonPath);
     auto *path = window.findChild<QLineEdit *>("headerFilePath");
-    auto *name = window.findChild<QLineEdit *>("structNameInput");
+    auto *name = window.findChild<QComboBox *>("structSelector");
     auto *tree = window.findChild<QTreeWidget *>("fieldsTree");
     auto *reload = window.findChild<QPushButton *>("reloadDefinitionButton");
     auto *source = window.findChild<QLabel *>("definitionSourceInfo");
-    CHECK(name->isReadOnly() && name->text() == "NestedPacketHeader");
+    CHECK(!name->isEnabled() && name->currentText() == "NestedPacketHeader");
     CHECK(source->text().contains("JSON") && tree->topLevelItemCount() == 1);
     auto *sequence = qobject_cast<QLineEdit *>(tree->itemWidget(tree->topLevelItem(0)->child(0), 1));
     sequence->setText("0x12345678");
     reload->click();
     CHECK(window.fieldValues().value("sequence") == "0x12345678");
-    CHECK(name->isReadOnly());
+    CHECK(!name->isEnabled());
     window.findChild<QPushButton *>("viewBinaryButton")->click();
     auto *preview = window.findChild<QDialog *>("binaryPreviewDialog");
     CHECK(preview && preview->findChild<QPlainTextEdit *>("binaryHexView")->toPlainText().startsWith("00000000  78 56 34 12"));
     preview->close();
-    path->setText(project + "/MsgHeader.h");
+    path->setText(testHeaders + "/MsgHeader.h");
     CHECK(QMetaObject::invokeMethod(path, "returnPressed"));
-    CHECK(!name->isReadOnly() && name->text() == "MsgHeader");
+    CHECK(!name->isEnabled() && name->currentText() == "MsgHeader" && name->count() == 1);
     CHECK(source->text().contains(QStringLiteral("头文件")) && tree->topLevelItem(0)->childCount() == 21);
-    path->setText(project + "/NestedPacketHeader.h");
-    name->setText("NestedPacketHeader");
+    path->setText(testHeaders + "/NestedPacketHeader.h");
     reload->click();
+    name->setCurrentText("NestedPacketHeader");
     CHECK(tree->topLevelItemCount() == 1);
     QTimer::singleShot(0, [jsonPath] {
         for (QWidget *widget : QApplication::topLevelWidgets()) {
@@ -174,20 +175,20 @@ int main(int argc, char **argv)
         qFatal("Open dialog not found");
     });
     window.findChild<QPushButton *>("openDefinitionButton")->click();
-    CHECK(name->isReadOnly() && name->text() == "NestedPacketHeader");
+    CHECK(!name->isEnabled() && name->currentText() == "NestedPacketHeader");
     window.show();
     app.processEvents();
     if (app.arguments().size() > 1)
         CHECK(window.grab().save(app.arguments().at(1)));
     CHECK(write(jsonPath, "{broken"));
     reload->click();
-    CHECK(tree->topLevelItemCount() == 0 && window.fieldValues().isEmpty() && name->text().isEmpty());
+    CHECK(tree->topLevelItemCount() == 0 && window.fieldValues().isEmpty() && name->count() == 0);
     CHECK(!window.findChild<QPushButton *>("exportDefinitionButton")->isEnabled());
     CHECK(!window.findChild<QPushButton *>("viewBinaryButton")->isEnabled());
     CHECK(!window.findChild<QPlainTextEdit *>()->toPlainText().isEmpty());
-    path->setText(project + "/NestedPacketHeader.h");
+    path->setText(testHeaders + "/NestedPacketHeader.h");
     reload->click();
-    CHECK(!name->isReadOnly() && name->text() == "NestedPacketHeader" && tree->topLevelItemCount() == 1);
+    CHECK(name->isEnabled() && name->currentText() == "NestedPacketHeader" && tree->topLevelItemCount() == 1);
     QTextStream(stdout) << "PASS: JSON roundtrip/import validation, aliases/arrays/bitfields, binary output,"
                           " unified open dialog, source display, readonly name, reload, failure and header-mode restoration\n";
     return 0;

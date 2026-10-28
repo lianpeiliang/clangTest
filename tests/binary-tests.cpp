@@ -3,6 +3,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QClipboard>
 #include <QDialog>
 #include <QEvent>
@@ -56,15 +57,15 @@ int main(int argc, char **argv)
         app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));
     }
 #endif
-    const QString project = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
-    const ParseResult flat = parseHeader(project + "/MsgHeader.h");
+    const QString testHeaders = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
+    const ParseResult flat = parseHeader(testHeaders + "/MsgHeader.h");
     CHECK(flat.success);
     QHash<QString, QString> zeroValues;
     for (const FieldInfo &field : flat.structure.fields)
         zeroValues.insert(field.name, defaultFieldValue(field));
     const BinaryResult zeroBytes = encodeStructure(flat.structure, zeroValues);
     CHECK(zeroBytes.success && zeroBytes.bytes == QByteArray(83, '\0'));
-    const ParseResult nested = parseHeader(project + "/NestedPacketHeader.h", "NestedPacketHeader");
+    const ParseResult nested = parseHeader(testHeaders + "/NestedPacketHeader.h", "NestedPacketHeader");
     CHECK(nested.success);
     const QHash<QString, QString> nestedValues{
         {"sequence", "305419896"}, {"address.source", "4386"},
@@ -226,13 +227,12 @@ int main(int argc, char **argv)
     invalidArray.fields.first().size = 9;
     CHECK(!encodeStructure(invalidArray, {}).success);
 
-    MainWindow window(project + "/NestedPacketHeader.h");
-    QLineEdit *name = window.findChild<QLineEdit *>("structNameInput");
+    MainWindow window(testHeaders + "/NestedPacketHeader.h");
+    QComboBox *name = window.findChild<QComboBox *>("structSelector");
     QTreeWidget *tree = window.findChild<QTreeWidget *>("fieldsTree");
     QPushButton *button = window.findChild<QPushButton *>("viewBinaryButton");
-    CHECK(button && !button->isEnabled());
-    name->setText("NestedPacketHeader");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(button && button->isEnabled());
+    name->setCurrentText("NestedPacketHeader");
     CHECK(button->isEnabled());
     QTreeWidgetItem *root = tree->topLevelItem(0);
     auto *sequence = qobject_cast<QLineEdit *>(tree->itemWidget(root->child(0), 1));
@@ -268,14 +268,14 @@ int main(int argc, char **argv)
     dialog->close();
     auto *file = window.findChild<QLineEdit *>("headerFilePath");
     file->setText(simplePath);
-    name->setText("Pointer");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(QMetaObject::invokeMethod(file, "returnPressed"));
+    name->setCurrentText("Pointer");
     button->click();
     CHECK(window.findChild<QPlainTextEdit *>()->toPlainText().contains("next"));
     app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
     file->setText(arraysPath);
-    name->setText("Arrays");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(QMetaObject::invokeMethod(file, "returnPressed"));
+    name->setCurrentText("Arrays");
     root = tree->topLevelItem(0);
     CHECK(root && !tree->itemWidget(root->child(2), 1));
     CHECK(!tree->itemWidget(root->child(1)->child(1), 1));

@@ -2,6 +2,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QFontDatabase>
@@ -70,8 +71,8 @@ int main(int argc, char **argv)
         app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));
     }
 #endif
-    const QString project = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
-    const ParseResult nested = parseHeader(project + "/NestedPacketHeader.h", "NestedPacketHeader");
+    const QString testHeaders = QStringLiteral(MSG_HEADER_PATH).section('/', 0, -2);
+    const ParseResult nested = parseHeader(testHeaders + "/NestedPacketHeader.h", "NestedPacketHeader");
     CHECK(nested.success);
     const QJsonObject root = structureDefinitionJson(nested.structure).object();
     CHECK(root.value("name") == "NestedPacketHeader" && root.value("size").toInt() == 10);
@@ -84,7 +85,7 @@ int main(int argc, char **argv)
     const QJsonObject destination = address.value("fields").toArray().at(1).toObject();
     CHECK(destination.value("offsetBits").toInt() == 16 && destination.value("absoluteOffsetBits").toInt() == 48);
     CHECK(hasNoValues(root));
-    const ParseResult flat = parseHeader(project + "/MsgHeader.h");
+    const ParseResult flat = parseHeader(testHeaders + "/MsgHeader.h");
     CHECK(flat.success && structureDefinitionJson(flat.structure).object().value("fields").toArray().size() == 21);
 
     QTemporaryDir temporary;
@@ -126,12 +127,11 @@ int main(int argc, char **argv)
     CHECK(structureDefinitionJson(large).object().value("size").toString() == "9007199254740993");
 
     MainWindow window(fixturePath);
-    auto *name = window.findChild<QLineEdit *>("structNameInput");
+    auto *name = window.findChild<QComboBox *>("structSelector");
     auto *tree = window.findChild<QTreeWidget *>("fieldsTree");
     auto *button = window.findChild<QPushButton *>("exportDefinitionButton");
-    CHECK(button && !button->isEnabled());
-    name->setText("Definition");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(button && button->isEnabled());
+    name->setCurrentText("Definition");
     CHECK(button->isEnabled());
     auto *count = qobject_cast<QLineEdit *>(tree->itemWidget(tree->topLevelItem(0)->child(0), 1));
     count->setText("0xDEADBEEF");
@@ -148,8 +148,10 @@ int main(int argc, char **argv)
     answerSaveDialog(QString());
     button->click();
     CHECK(QJsonDocument::fromJson(readFile(uiOutput)) == expected);
-    name->setText("Missing");
-    CHECK(QMetaObject::invokeMethod(name, "returnPressed"));
+    CHECK(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    fixture.write("struct Forward;");
+    fixture.close();
+    window.findChild<QPushButton *>("reloadDefinitionButton")->click();
     CHECK(!button->isEnabled());
     if (app.arguments().size() > 1)
         CHECK(saveStructureDefinitionJson(nested.structure, app.arguments().at(1), &error));

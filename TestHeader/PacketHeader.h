@@ -1,7 +1,7 @@
 #ifndef PACKETHEADER_H
 #define PACKETHEADER_H
 
-// 在界面中打开本文件，将“结构体名称”改为 PacketHeader 后解析。
+// 在界面中打开本文件，自动识别并加载唯一的 PacketHeader。
 #pragma pack(push, 1)
 
 struct PacketHeader

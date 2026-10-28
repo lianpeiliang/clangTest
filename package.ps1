@@ -90,19 +90,18 @@ try {
             Copy-Item -LiteralPath $resourceHeaders -Destination $resourceTarget -Recurse
         }
     }
-    $samplesDir = Join-Path $appDir 'samples'
+    $testHeadersDir = Join-Path $projectRoot 'TestHeader'
     $sourceDir = Join-Path $appDir 'source'
     $licenseDir = Join-Path $appDir 'licenses'
-    New-Item -ItemType Directory -Path $samplesDir, $sourceDir, $licenseDir -Force | Out-Null
-    foreach ($sample in @('MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h')) {
-        Copy-Item -LiteralPath (Join-Path $projectRoot $sample) -Destination $samplesDir
-    }
+    New-Item -ItemType Directory -Path $sourceDir, $licenseDir -Force | Out-Null
+    Copy-Item -LiteralPath $testHeadersDir -Destination $appDir -Recurse
     foreach ($file in @(
         'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
-        'MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h', 'clangTest.pro', 'README.md', 'package.ps1'
+        'clangTest.pro', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }
+    Copy-Item -LiteralPath $testHeadersDir -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $projectRoot 'tests') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $ClangRoot 'share/licenses') -Destination (Join-Path $licenseDir 'msys2') -Recurse
     Copy-Item -LiteralPath (Join-Path $QtRoot 'Licenses') -Destination (Join-Path $licenseDir 'qt') -Recurse
@@ -112,11 +111,11 @@ clangTest Windows x64 便携版
 
 使用方法
 1. 完整解压此文件夹，然后双击 clangTest.exe。
-2. 程序默认读取 samples/MsgHeader.h，显示 21 个字段、83 字节。
+2. 程序默认读取 TestHeader/MsgHeader.h，显示 21 个字段、83 字节。
 3. 点击“打开结构定义…”选择头文件或本程序导出的结构定义 JSON，界面显示当前来源和目标平台。
-4. 修改并保存文件后，点击“重新加载”。头文件模式可修改查找名称，JSON 模式下名称由文件读取、只读显示。
-5. 打开 samples/PacketHeader.h，将结构体名称改为 PacketHeader，验证其他名称的解析。
-6. 打开 samples/NestedPacketHeader.h，名称设为 NestedPacketHeader，展开 address 查看内部字段；也可使用“全部展开 / 全部折叠”。
+4. 头文件中的结构体自动识别：只有一个时直接加载；有多个时在“选择结构体”下拉框切换。修改并保存文件后，点击“重新加载”。JSON 模式下名称由文件读取。
+5. 打开 TestHeader/PacketHeader.h，自动加载唯一的 PacketHeader；打开 TestHeader/MultiStructHeader.h，可从 20 个结构体中选择。
+6. 打开 TestHeader/NestedPacketHeader.h，选择 NestedPacketHeader，展开 address 查看内部字段；也可使用“全部展开 / 全部折叠”。
 7. 相对偏移表示相对直接所属结构体的位置，绝对偏移表示相对最外层结构体的位置。
 8. 在“值”列填写基础类型字段，bool 使用下拉框。输入无效时标红，并保留上一次有效值；指针、引用和数组等暂时只读。
    整数可填十进制或带 0x / 0X 前缀的十六进制，例如 42、0x2A、-0x10，仍按字段类型范围校验。
@@ -130,7 +129,7 @@ clangTest Windows x64 便携版
 自带 Qt、libclang、相关 DLL 和 C/C++ 头文件，无需安装 Qt 或 Clang。
 请保留整个文件夹的目录结构。解析目标为 Windows x64 / MinGW，使用 C++11。
 
-samples/  示例头文件
+TestHeader/ 测试和示例头文件
 runtime/  解析所需的标准库及 Clang 内置头文件
 source/   本程序源码和重新构建脚本
 licenses/ 第三方组件随安装包提供的许可文件

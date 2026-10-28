@@ -118,9 +118,7 @@ QString recordEncodingIssue(CXCursor cursor)
 
 struct VisitorContext
 {
-    QString targetName;
     ParseResult result;
-    bool found = false;
     bool valid = true;
 };
 
@@ -183,22 +181,73 @@ CXChildVisitResult visitField(CXCursor cursor, CXCursor, CXClientData data)
     return CXChildVisit_Continue;
 }
 
-CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData data)
+struct RecordCandidate
+{
+    CXCursor cursor;
+    QString name;
+};
+
+QString qualifiedName(CXCursor cursor)
+{
+    QStringList parts;
+    parts.prepend(toQString(clang_getCursorSpelling(cursor)));
+    for (CXCursor parent = clang_getCursorSemanticParent(cursor);
+         !clang_Cursor_isNull(parent) && clang_getCursorKind(parent) != CXCursor_TranslationUnit;
+         parent = clang_getCursorSemanticParent(parent)) {
+        QString name = toQString(clang_getCursorSpelling(parent));
+        if (name.isEmpty() && clang_getCursorKind(parent) == CXCursor_Namespace)
+            name = QStringLiteral("(anonymous namespace)");
+        if (!name.isEmpty())
+            parts.prepend(name);
+    }
+    return parts.join(QStringLiteral("::"));
+}
+
+CXChildVisitResult discoverRecords(CXCursor cursor, CXCursor, CXClientData data)
 {
     // TranslationUnit 也包含被 #include 引入的声明，只查找主文件中的定义。
     if (!clang_Location_isFromMainFile(clang_getCursorLocation(cursor)))
         return CXChildVisit_Continue;
 
-    VisitorContext &context = *static_cast<VisitorContext *>(data);
-    // 排除 struct MsgHeader; 这样的前置声明；其他节点继续递归，以支持命名空间。
-    if (clang_getCursorKind(cursor) != CXCursor_StructDecl
-        || !clang_isCursorDefinition(cursor)
-        || toQString(clang_getCursorSpelling(cursor)) != context.targetName)
-        return CXChildVisit_Recurse;
+    auto &candidates = *static_cast<QVector<RecordCandidate> *>(data);
+    const CXCursorKind kind = clang_getCursorKind(cursor);
+    CXCursor definition = cursor;
+    QString name;
+    if (kind == CXCursor_StructDecl && clang_isCursorDefinition(cursor)
+        && !clang_Cursor_isAnonymous(cursor)
+        && !toQString(clang_getCursorSpelling(cursor)).isEmpty()) {
+        name = qualifiedName(cursor);
+    } else if (kind == CXCursor_TypedefDecl || kind == CXCursor_TypeAliasDecl) {
+        const CXType type = clang_getCanonicalType(clang_getCursorType(cursor));
+        definition = clang_getCursorDefinition(clang_getTypeDeclaration(type));
+        // typedef struct { ... } Packet; 也能作为独立结构体；普通别名不重复列出。
+        if (type.kind == CXType_Record && clang_getCursorKind(definition) == CXCursor_StructDecl
+            && clang_Location_isFromMainFile(clang_getCursorLocation(definition))
+            && (clang_Cursor_isAnonymous(definition)
+                || toQString(clang_getCursorSpelling(definition)).isEmpty()))
+            name = qualifiedName(cursor);
+    }
+    if (!name.isEmpty()) {
+        bool duplicate = false;
+        for (const RecordCandidate &candidate : candidates)
+            duplicate |= bool(clang_equalCursors(candidate.cursor, definition));
+        if (!duplicate)
+            candidates.append(RecordCandidate{definition, name});
+    }
+    // 进入命名空间和记录作用域，跳过函数局部类型及尚未实例化的模板。
+    return kind == CXCursor_Namespace || kind == CXCursor_LinkageSpec
+        || kind == CXCursor_UnexposedDecl || kind == CXCursor_StructDecl
+        || kind == CXCursor_ClassDecl || kind == CXCursor_UnionDecl
+        || kind == CXCursor_TypedefDecl || kind == CXCursor_TypeAliasDecl
+        ? CXChildVisit_Recurse : CXChildVisit_Continue;
+}
 
-    context.found = true;
+ParseResult parseRecord(const RecordCandidate &candidate)
+{
+    VisitorContext context;
+    const CXCursor cursor = candidate.cursor;
     StructInfo &structure = context.result.structure;
-    structure.name = toQString(clang_getCursorSpelling(cursor));
+    structure.name = candidate.name;
     structure.binaryEncodingIssue = recordEncodingIssue(cursor);
     const CXType type = clang_getCursorType(cursor);
     // libclang 按目标平台和 #pragma pack 计算对齐与填充，无需手动累加字段大小。
@@ -208,24 +257,24 @@ CXChildVisitResult visitRecord(CXCursor cursor, CXCursor, CXClientData data)
         context.valid = false;
         context.result.diagnostics.append(QStringLiteral("无法读取结构体 %1 的内存布局。")
                                               .arg(structure.name));
-        return CXChildVisit_Break;
+        return context.result;
     }
     // 每一层传入自己的字段容器和累计偏移，保存完整的成员树。
     FieldVisitorContext fieldContext{context, structure.fields, 0, structure.name, false};
     clang_visitChildren(cursor, visitField, &fieldContext);
-    return CXChildVisit_Break;
+    context.result.success = context.valid;
+    return context.result;
 }
 
 } // namespace
 
-ParseResult parseHeader(const QString &filePath, const QString &structName)
+HeaderParseResult parseHeaderStructures(const QString &filePath)
 {
-    VisitorContext context;
-    context.targetName = structName;
+    HeaderParseResult result;
     const QFileInfo sourceInfo(filePath);
     if (filePath.trimmed().isEmpty() || !sourceInfo.isFile() || !sourceInfo.isReadable()) {
-        context.result.diagnostics.append(QStringLiteral("头文件不存在或无法读取：%1").arg(filePath));
-        return context.result;
+        result.diagnostics.append(QStringLiteral("头文件不存在或无法读取：%1").arg(filePath));
+        return result;
     }
 
     const QByteArray sourceFile = sourceInfo.absoluteFilePath().toUtf8();
@@ -243,8 +292,8 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
         const QString cxxPath = versionDirectory(runtimePath + QStringLiteral("/include/c++"));
         const QString resourcePath = versionDirectory(runtimePath + QStringLiteral("/lib/clang"));
         if (cxxPath.isEmpty() || resourcePath.isEmpty()) {
-            context.result.diagnostics.append(QStringLiteral("随包标准库头文件不完整，请完整解压程序压缩包。"));
-            return context.result;
+            result.diagnostics.append(QStringLiteral("随包标准库头文件不完整，请完整解压程序压缩包。"));
+            return result;
         }
         // argv[0] 仅供 libclang 识别工具链位置，便携包不需要真正附带 clang++.exe。
         arguments[0] = (runtimePath + QStringLiteral("/bin/clang++.exe")).toUtf8();
@@ -269,8 +318,8 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
     // 第一个 0：不排除预编译头声明；第二个 0：不自动打印诊断，稍后自行收集。
     CXIndex index = clang_createIndex(0, 0);
     if (!index) {
-        context.result.diagnostics.append(QStringLiteral("无法创建 libclang 索引。"));
-        return context.result;
+        result.diagnostics.append(QStringLiteral("无法创建 libclang 索引。"));
+        return result;
     }
     CXTranslationUnit unit = nullptr;
     // 参数顺序：索引、文件、编译参数、参数数量、内存文件、内存文件数量、选项、输出指针。
@@ -279,11 +328,11 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
         index, sourceFile.constData(), argumentPointers.constData(), argumentPointers.size(),
         nullptr, 0, CXTranslationUnit_None, &unit);
     if (error != CXError_Success || !unit) {
-        context.result.diagnostics.append(QStringLiteral("libclang 解析失败，错误码：%1").arg(int(error)));
+        result.diagnostics.append(QStringLiteral("libclang 解析失败，错误码：%1").arg(int(error)));
         if (unit)
             clang_disposeTranslationUnit(unit);
         clang_disposeIndex(index);
-        return context.result;
+        return result;
     }
 
     // 接口调用成功仍可能有语法错误，必须检查诊断；Error/Fatal 阻止后续布局查询。
@@ -292,20 +341,57 @@ ParseResult parseHeader(const QString &filePath, const QString &structName)
     for (unsigned i = 0; i < diagnosticCount; ++i) {
         CXDiagnostic diagnostic = clang_getDiagnostic(unit, i);
         hasErrors |= clang_getDiagnosticSeverity(diagnostic) >= CXDiagnostic_Error;
-        context.result.diagnostics.append(toQString(clang_formatDiagnostic(
+        result.diagnostics.append(toQString(clang_formatDiagnostic(
             diagnostic, clang_defaultDiagnosticDisplayOptions())));
         clang_disposeDiagnostic(diagnostic);
     }
     if (!hasErrors) {
         // 从 AST 根节点开始遍历；Continue 跳过子节点，Recurse 进入子节点，Break 结束遍历。
-        clang_visitChildren(clang_getTranslationUnitCursor(unit), visitRecord, &context);
-        if (!context.found)
-            context.result.diagnostics.append(QStringLiteral("未在主文件中找到结构体 %1 的定义。")
-                                                  .arg(structName));
+        QVector<RecordCandidate> candidates;
+        clang_visitChildren(clang_getTranslationUnitCursor(unit), discoverRecords, &candidates);
+        for (const RecordCandidate &candidate : candidates)
+            result.structures.append(parseRecord(candidate));
+        if (candidates.isEmpty())
+            result.diagnostics.append(QStringLiteral("未在主文件中找到可选择的 struct 定义（前置声明、无名称的匿名成员和未实例化模板不列出）。"));
     }
-    context.result.success = !hasErrors && context.found && context.valid;
+    result.success = !hasErrors && !result.structures.isEmpty();
     // 先释放翻译单元再释放索引。Cursor/Type 不需单独释放，此后界面只用复制好的结果。
     clang_disposeTranslationUnit(unit);
     clang_disposeIndex(index);
-    return context.result;
+    return result;
+}
+
+ParseResult parseHeader(const QString &filePath, const QString &structName)
+{
+    const HeaderParseResult header = parseHeaderStructures(filePath);
+    ParseResult result;
+    result.diagnostics = header.diagnostics;
+    if (!header.success)
+        return result;
+    const QString requested = structName.trimmed();
+    QStringList names;
+    QVector<int> matches;
+    for (int i = 0; i < header.structures.size(); ++i) {
+        const QString name = header.structures.at(i).structure.name;
+        names.append(name);
+        if (name == requested) {
+            matches = {i};
+            break;
+        }
+        if (name.section(QStringLiteral("::"), -1) == requested)
+            matches.append(i);
+    }
+    if (requested.isEmpty() && header.structures.size() == 1)
+        matches = {0};
+    if (matches.size() == 1) {
+        result = header.structures.at(matches.first());
+        result.diagnostics = header.diagnostics + result.diagnostics;
+    } else if (requested.isEmpty() || matches.size() > 1) {
+        result.diagnostics.append(QStringLiteral("发现多个结构体，请选择完整名称：%1。")
+                                  .arg(names.join(QStringLiteral("、"))));
+    } else {
+        result.diagnostics.append(QStringLiteral("未在主文件中找到结构体 %1 的定义。可选结构体：%2。")
+                                  .arg(requested, names.join(QStringLiteral("、"))));
+    }
+    return result;
 }
