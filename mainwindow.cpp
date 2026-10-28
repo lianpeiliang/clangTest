@@ -2,6 +2,7 @@
 #include "headerparser.h"
 #include "fieldvalue.h"
 #include "binaryencoder.h"
+#include "binarydecoder.h"
 #include "definitionjson.h"
 
 #include <QApplication>
@@ -22,6 +23,8 @@
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <functional>
+#include <memory>
 
 namespace {
 
@@ -184,6 +187,132 @@ void MainWindow::exportDefinitionJson()
     m_status->setText(QStringLiteral("已导出结构定义（不含值）：%1").arg(QDir::toNativeSeparators(path)));
 }
 
+void MainWindow::showHexDecoder()
+{
+    if (!m_hasStructure)
+        return;
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("hexDecodeDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setWindowTitle(QStringLiteral("解析十六进制：%1").arg(m_parsedStructure.name));
+    dialog->resize(1100, 720);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *summary = new QLabel(QStringLiteral(
+        "%1：需要完整的 %2 字节（含结构体填充）。支持连续十六进制、空格/换行/逗号分隔及 0x 前缀。\n"
+        "例如：78 56 34 12 或 0x78, 0x56, 0x34, 0x12。请粘贴字节本身，不含偏移地址。")
+        .arg(m_parsedStructure.name).arg(m_parsedStructure.size), dialog);
+    summary->setTextFormat(Qt::PlainText);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+    auto *input = new QPlainTextEdit(dialog);
+    input->setObjectName(QStringLiteral("hexDecodeInput"));
+    input->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    input->setPlaceholderText(QStringLiteral("在这里输入或粘贴十六进制字节…"));
+    input->setPlainText(m_lastHexInput);
+    layout->addWidget(input, 1);
+    auto *row = new QHBoxLayout;
+    row->addWidget(new QLabel(QStringLiteral("数据字节序："), dialog));
+    auto *order = new QComboBox(dialog);
+    order->setObjectName(QStringLiteral("hexByteOrder"));
+    order->addItems({QStringLiteral("小端（与当前目标一致）"), QStringLiteral("大端（逐字段解释）")});
+    order->setCurrentIndex(m_lastHexByteOrder);
+    order->setToolTip(QStringLiteral("仅改变字段内的字节解释；字段偏移/对齐仍来自已导入布局。大端位域和大端 long double 暂不支持。"));
+    row->addWidget(order);
+    row->addStretch();
+    auto *parse = new QPushButton(QStringLiteral("解析"), dialog);
+    parse->setObjectName(QStringLiteral("parseHexButton"));
+    row->addWidget(parse);
+    layout->addLayout(row);
+    auto *status = new QLabel(QStringLiteral("输入数据后点击“解析”，结果按字段层级显示。"), dialog);
+    status->setObjectName(QStringLiteral("hexDecodeStatus"));
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(status);
+    auto *tree = new QTreeWidget(dialog);
+    tree->setObjectName(QStringLiteral("hexDecodedFields"));
+    tree->setHeaderLabels({QStringLiteral("字段"), QStringLiteral("类型"), QStringLiteral("绝对字节偏移"),
+                           QStringLiteral("原始字节"), QStringLiteral("解析值"), QStringLiteral("说明")});
+    tree->setAlternatingRowColors(true);
+    tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    tree->header()->setStretchLastSection(true);
+    layout->addWidget(tree, 3);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
+    auto *apply = buttons->addButton(QStringLiteral("填入可编辑字段"), QDialogButtonBox::ActionRole);
+    apply->setObjectName(QStringLiteral("applyDecodedValuesButton"));
+    apply->setEnabled(false);
+    apply->setToolTip(QStringLiteral("仅填入已解析且通过校验的基础类型字段。原始数据中的填充和只读数组不会保存到字段值；二进制预览仍将这些区域补 0，并使用小端序。"));
+    layout->addWidget(buttons);
+    auto values = std::make_shared<QHash<QString, QString>>();
+    const auto reset = [tree, status, apply, values] {
+        tree->clear();
+        values->clear();
+        apply->setEnabled(false);
+        status->setText(QStringLiteral("输入已更新，请点击“解析”。"));
+    };
+    connect(input, &QPlainTextEdit::textChanged, dialog, [this, input, reset] {
+        m_lastHexInput = input->toPlainText();
+        reset();
+    });
+    connect(order, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [this, reset](int index) {
+        m_lastHexByteOrder = index;
+        reset();
+    });
+    // 捕获当前定义；窗口模态阻止用户解析期间切换主窗口的定义。
+    const StructInfo structure = m_parsedStructure;
+    connect(parse, &QPushButton::clicked, dialog, [structure, input, order, tree, status, apply, values, reset] {
+        reset();
+        const BinaryResult hex = parseHexBytes(input->toPlainText());
+        if (!hex.success) {
+            status->setText(hex.diagnostics.join(QLatin1Char('\n')));
+            return;
+        }
+        const DecodeResult result = decodeStructure(structure, hex.bytes,
+            order->currentIndex() == 0 ? BinaryByteOrder::LittleEndian : BinaryByteOrder::BigEndian);
+        if (!result.success) {
+            status->setText(result.diagnostics.join(QLatin1Char('\n')));
+            return;
+        }
+        std::function<void(QTreeWidgetItem *, const QVector<DecodedField> &)> append;
+        append = [&append](QTreeWidgetItem *parent, const QVector<DecodedField> &fields) {
+            for (const DecodedField &field : fields) {
+                QString raw = QString::fromLatin1(field.bytes.left(32).toHex(' ').toUpper());
+                if (field.bytes.size() > 32)
+                    raw += QStringLiteral(" …（共 %1 字节）").arg(field.bytes.size());
+                auto *item = new QTreeWidgetItem(parent, {field.name, field.typeName,
+                    byteOffset(field.offsetBits), raw, field.value, field.note});
+                item->setToolTip(0, field.path);
+                item->setToolTip(2, QStringLiteral("绝对偏移 %1 bit，字段宽度 %2 bit；位域原始字节含相邻位。")
+                                 .arg(field.offsetBits).arg(field.widthBits));
+                append(item, field.children);
+            }
+        };
+        auto *root = new QTreeWidgetItem(tree, {structure.name, QStringLiteral("struct"), QStringLiteral("0")});
+        append(root, result.fields);
+        tree->expandAll();
+        *values = result.editableValues;
+        apply->setEnabled(!values->isEmpty());
+        status->setText(QStringLiteral("已解析 %1 字节，%2 个字段可填回。数组/不支持的只读类型显示原始字节；NaN/无穷大仅显示。填回只更新字段值，预览按目标小端序编码，数组和填充仍补 0。")
+                        .arg(hex.bytes.size()).arg(values->size()));
+    });
+    connect(apply, &QPushButton::clicked, dialog, [this, values, status] {
+        for (auto it = values->cbegin(); it != values->cend(); ++it) {
+            const QString name = QStringLiteral("fieldValue:") + it.key();
+            if (auto *editor = m_fields->findChild<QLineEdit *>(name))
+                editor->setText(it.value());
+            else if (auto *combo = m_fields->findChild<QComboBox *>(name))
+                combo->setCurrentText(it.value());
+        }
+        updateValueStatus();
+        status->setText(QStringLiteral("已将 %1 个解析值填入主窗口。仅更新字段值；数组和填充字节不会保留，二进制预览使用目标小端序。").arg(values->size()));
+    });
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    dialog->show();
+}
+
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
@@ -230,6 +359,10 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_binaryButton->setEnabled(false);
     m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
     nameRow->addWidget(m_binaryButton);
+    m_decodeButton = new QPushButton(QStringLiteral("解析十六进制…"), this);
+    m_decodeButton->setObjectName(QStringLiteral("decodeHexButton"));
+    m_decodeButton->setEnabled(false);
+    nameRow->addWidget(m_decodeButton);
     m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
     m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
     m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
@@ -305,6 +438,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
     connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
     connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
+    connect(m_decodeButton, &QPushButton::clicked, this, [this] { showHexDecoder(); });
     connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
@@ -320,6 +454,8 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
 
 void MainWindow::reloadDefinition()
 {
+    if (auto *dialog = findChild<QDialog *>(QStringLiteral("hexDecodeDialog")))
+        dialog->close();
     const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
     const bool jsonMode = QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0;
     const bool wasJsonMode = m_structName->isReadOnly();
@@ -359,6 +495,7 @@ void MainWindow::reloadDefinition()
     m_parsedStructure = StructInfo();
     m_parseDiagnostics = result.diagnostics;
     m_binaryButton->setEnabled(false);
+    m_decodeButton->setEnabled(false);
     m_exportDefinitionButton->setEnabled(false);
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
@@ -372,6 +509,7 @@ void MainWindow::reloadDefinition()
     const StructInfo &structure = result.structure;
     m_parsedStructure = structure;
     m_hasStructure = true;
+    m_decodeButton->setEnabled(true);
     m_exportDefinitionButton->setEnabled(true);
     m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。

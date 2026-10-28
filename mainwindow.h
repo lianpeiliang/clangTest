@@ -27,6 +27,7 @@ private:
                       const QString &parentPath, const QHash<QString, QString> &previousValues);
     void updateValueStatus();
     void showBinary();
+    void showHexDecoder();
     void exportDefinitionJson();
 
     QLineEdit *m_filePath;
@@ -42,11 +43,14 @@ private:
     QHash<QString, QString> m_valueErrors;
     QString m_valuesSource;
     QPushButton *m_binaryButton;
+    QPushButton *m_decodeButton;
     QPushButton *m_exportDefinitionButton;
     StructInfo m_parsedStructure;
     QStringList m_parseDiagnostics;
     bool m_hasStructure = false;
     QString m_headerStructName = QStringLiteral("MsgHeader");
+    QString m_lastHexInput;
+    int m_lastHexByteOrder = 0;
 };
 
 #endif

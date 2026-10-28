@@ -5,8 +5,8 @@ TARGET = clangTest
 CONFIG += c++11
 CONFIG -= console app_bundle
 
-SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp definitionjson.cpp
-HEADERS += MsgHeader.h SimpleMsgHeader.h MinimalMsgHeader.h PacketHeader.h NestedPacketHeader.h headerparser.h mainwindow.h fieldvalue.h binaryencoder.h definitionjson.h
+SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
+HEADERS += MsgHeader.h SimpleMsgHeader.h MinimalMsgHeader.h PacketHeader.h NestedPacketHeader.h headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
 
 # MSYS2 MINGW64 安装目录，可用 qmake LIBCLANG_ROOT=C:/path/to/mingw64 覆盖。
 isEmpty(LIBCLANG_ROOT): LIBCLANG_ROOT = D:/msys64/mingw64

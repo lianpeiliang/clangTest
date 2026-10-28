@@ -98,7 +98,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot $sample) -Destination $samplesDir
     }
     foreach ($file in @(
-        'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
+        'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
         'MsgHeader.h', 'SimpleMsgHeader.h', 'MinimalMsgHeader.h', 'PacketHeader.h', 'NestedPacketHeader.h', 'clangTest.pro', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
@@ -125,6 +125,7 @@ clangTest Windows x64 便携版
     数组仍只读，二进制预览按实际大小全部填 0，允许含数组的结构体生成预览。
 11. 点击“导出结构定义 JSON”保存当前结构体的类型、嵌套关系和布局信息，不含输入值。
 12. 打开导出的 JSON 可直接恢复结构体和布局，继续赋值、查看二进制；JSON 加载不调用 libclang。
+13. 点击“解析十六进制…”粘贴完整字节，选择大小端并解析，查看字段原始字节与数值；可点击“填入可编辑字段”。数组暂只显示原始字节，大端位域/long double 暂不支持。
 
 自带 Qt、libclang、相关 DLL 和 C/C++ 头文件，无需安装 Qt 或 Clang。
 请保留整个文件夹的目录结构。解析目标为 Windows x64 / MinGW，使用 C++11。
