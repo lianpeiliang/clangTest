@@ -1,12 +1,11 @@
 #include "mainwindow.h"
 #include "hexdialogs.h"
+#include "fieldeditor.h"
 #include "headerparser.h"
-#include "fieldvalue.h"
 #include "binaryencoder.h"
 #include "binarydecoder.h"
 #include "definitionjson.h"
 
-#include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
@@ -14,126 +13,31 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFrame>
-#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QStyle>
-#include <QTreeWidget>
-#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
 // 界面层的数据流：加载文件 → 得到候选结构体 → 选择一项 → 显示字段树 → 编辑/预览/导出。
-// 可以先读构造函数，再读 reloadDefinition()、showSelectedStructure()、appendFields()。
-namespace {
+// MainWindow 协调加载与操作；字段控件和校验由 FieldEditor 负责。
 
-QString byteOffset(qint64 bits)
-{
-    // 位域保留不足一个字节的 bit 偏移。
-    return bits % 8 == 0 ? QString::number(bits / 8)
-                        : QStringLiteral("%1 + %2 bit").arg(bits / 8).arg(bits % 8);
-}
-
-void setInvalid(QWidget *widget, bool invalid)
-{
-    if (widget->property("invalid").toBool() == invalid)
-        return;
-    widget->setProperty("invalid", invalid);
-    // Qt 动态属性变化后重新应用 QSS，错误颜色集中定义在主题文件中。
-    widget->style()->unpolish(widget);
-    widget->style()->polish(widget);
-    widget->update();
-}
-
-} // namespace
-
-// 每次处理一层成员；遇到嵌套成员时再次调用自己，形成与结构体对应的树。
-void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> &fields,
-                              const QString &parentPath,
-                              const QHash<QString, QString> &previousValues)
-{
-    for (const FieldInfo &field : fields) {
-        // 完整路径用于唯一标识字段，例如 source 与 address.source 是不同的输入项。
-        const QString fieldPath = parentPath.isEmpty() ? field.name
-                                                       : parentPath + QLatin1Char('.') + field.name;
-        auto *item = new QTreeWidgetItem(parent, QStringList{
-            field.name, QString(), field.typeName, field.canonicalTypeName,
-            QString::number(field.size), QString::number(field.alignment),
-            byteOffset(field.offsetBits), byteOffset(field.absoluteOffsetBits),
-            QString::number(field.offsetBits), QString::number(field.absoluteOffsetBits)
-        });
-        item->setToolTip(0, fieldPath);
-        for (int column = 4; column < item->columnCount(); ++column)
-            item->setTextAlignment(column, Qt::AlignCenter);
-        if (!isEditableField(field)) {
-            item->setText(1, field.valueKind == FieldValueKind::Record
-                                ? QStringLiteral("分组") : QStringLiteral("只读"));
-            item->setToolTip(1, field.readOnlyReason);
-        } else {
-            const FieldValueValidation previous = validateFieldValue(field, previousValues.value(fieldPath));
-            // 保留合法的输入形式（例如 0xFF），编码时再由校验器转换成数值。
-            const QString value = previous.valid ? previousValues.value(fieldPath).trimmed() : defaultFieldValue(field);
-            m_fieldValues.insert(fieldPath, value);
-            const QString hint = fieldValueHint(field);
-            // bool 只有两个合法值，用下拉框；其他可编辑基础类型用文本输入框。
-            if (field.valueKind == FieldValueKind::Boolean) {
-                auto *editor = new QComboBox(m_fields);
-                editor->setObjectName(QStringLiteral("fieldValue:") + fieldPath);
-                editor->addItems({QStringLiteral("false"), QStringLiteral("true")});
-                editor->setCurrentText(value);
-                editor->setToolTip(fieldPath + QLatin1Char('\n') + hint);
-                item->setSizeHint(1, QSize(190, editor->sizeHint().height() + 4));
-                m_fields->setItemWidget(item, 1, editor);
-                connect(editor, &QComboBox::currentTextChanged, this,
-                        [this, fieldPath](const QString &text) {
-                    m_fieldValues.insert(fieldPath, text);
-                });
-            } else {
-                auto *editor = new QLineEdit(value, m_fields);
-                editor->setObjectName(QStringLiteral("fieldValue:") + fieldPath);
-                editor->setToolTip(fieldPath + QLatin1Char('\n') + hint);
-                item->setSizeHint(1, QSize(190, editor->sizeHint().height() + 4));
-                m_fields->setItemWidget(item, 1, editor);
-                // connect 把控件的“信号”连接到处理函数：文字变化时立即校验。
-                // 方括号是 lambda 捕获列表，让处理函数稍后还能使用这里的对象和字段信息。
-                connect(editor, &QLineEdit::textChanged, this,
-                        [this, editor, field, fieldPath, hint](const QString &text) {
-                    const FieldValueValidation validation = validateFieldValue(field, text);
-                    if (validation.valid) {
-                        m_fieldValues.insert(fieldPath, text.trimmed());
-                        m_valueErrors.remove(fieldPath);
-                    } else {
-                        // 无效文字仍显示在输入框中，但不覆盖 m_fieldValues 中的上次合法值。
-                        m_valueErrors.insert(fieldPath, validation.error);
-                    }
-                    setInvalid(editor, !validation.valid);
-                    editor->setToolTip(fieldPath + QLatin1Char('\n')
-                                      + (validation.valid ? hint : validation.error));
-                    updateValueStatus();
-                });
-            }
-        }
-        appendFields(item, field.children, fieldPath, previousValues);
-    }
-}
-
-// 每个输入框只维护自己的错误，这里统一决定按钮状态和顶部的错误提示。
+// 编辑区统一维护输入错误，主窗口只决定相关操作按钮是否可用。
 void MainWindow::updateValueStatus()
 {
-    m_binaryButton->setEnabled(m_hasStructure && m_valueErrors.isEmpty());
-    setInvalid(m_valueStatus, !m_valueErrors.isEmpty());
-    if (m_valueErrors.isEmpty()) {
-        m_valueStatus->setText(QStringLiteral("值保存在内存中。整数支持十进制或 0x 前缀十六进制，布尔值使用下拉选择；字符类型按数值编码填写。"));
-    } else {
-        QStringList paths = m_valueErrors.keys();
-        paths.sort();
-        const QString path = paths.first();
-        m_valueStatus->setText(QStringLiteral("%1 个字段输入无效：%2：%3 上一次有效值已保留。")
-            .arg(paths.size()).arg(path, m_valueErrors.value(path)));
-    }
+    m_binaryButton->setEnabled(m_hasStructure && !m_fieldEditor->hasInvalidValues());
+}
+
+const QHash<QString, QString> &MainWindow::fieldValues() const
+{
+    return m_fieldEditor->fieldValues();
+}
+
+bool MainWindow::hasInvalidFieldValues() const
+{
+    return m_fieldEditor->hasInvalidValues();
 }
 
 // 先调用编码模块得到字节，再把字节排版到弹窗；此函数不直接计算字段布局。
@@ -141,7 +45,7 @@ void MainWindow::showBinary()
 {
     if (!m_hasStructure || hasInvalidFieldValues())
         return;
-    const BinaryResult result = encodeStructure(m_parsedStructure, m_fieldValues);
+    const BinaryResult result = encodeStructure(m_parsedStructure, fieldValues());
     if (!result.success) {
         m_status->setText(QStringLiteral("无法生成二进制，请查看下方原因。"));
         m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
@@ -156,7 +60,7 @@ void MainWindow::showBinary()
     m_hexDialogs->showPreview(m_parsedStructure, result.bytes, m_loadedPath);
 }
 
-// 导出只传结构定义 m_parsedStructure，字段输入值 m_fieldValues 不参与保存。
+// 导出只传结构定义 m_parsedStructure，字段输入值 fieldValues() 不参与保存。
 void MainWindow::exportDefinitionJson()
 {
     if (!m_hasStructure)
@@ -182,25 +86,8 @@ void MainWindow::showHexDecoder()
 {
     if (m_hasStructure)
         m_hexDialogs->showDecoder(m_parsedStructure, [this](const QHash<QString, QString> &values) {
-            applyDecodedValues(values);
+            m_fieldEditor->applyValues(values);
         });
-}
-
-void MainWindow::applyDecodedValues(const QHash<QString, QString> &values)
-{
-    // 只遍历当前树，避免命中重载后等待延迟销毁的旧编辑控件。
-    for (QTreeWidgetItemIterator it(m_fields); *it; ++it) {
-        const auto value = values.constFind((*it)->toolTip(0));
-        if (value == values.cend())
-            continue;
-        QWidget *widget = m_fields->itemWidget(*it, 1);
-        // 设置控件值会触发原来的输入信号，同时刷新内存值和错误提示。
-        if (auto *editor = qobject_cast<QLineEdit *>(widget))
-            editor->setText(value.value());
-        else if (auto *combo = qobject_cast<QComboBox *>(widget))
-            combo->setCurrentText(value.value());
-    }
-    updateValueStatus();
 }
 
 bool MainWindow::importHexText(const QString &text, QString &error)
@@ -222,7 +109,7 @@ bool MainWindow::importHexText(const QString &text, QString &error)
     }
     // 例如 NaN 可供解析预览，但不能导入编辑器；先检查全部字段，避免只导入一部分。
     QStringList missing;
-    for (auto it = m_fieldValues.cbegin(); it != m_fieldValues.cend(); ++it) {
+    for (auto it = fieldValues().cbegin(); it != fieldValues().cend(); ++it) {
         if (!result.editableValues.contains(it.key()))
             missing.append(it.key());
     }
@@ -236,7 +123,7 @@ bool MainWindow::importHexText(const QString &text, QString &error)
         error = QStringLiteral("当前结构体没有可导入的可编辑字段，可使用“解析十六进制”查看原始字节。");
         return false;
     }
-    applyDecodedValues(result.editableValues);
+    m_fieldEditor->applyValues(result.editableValues);
     m_hexDialogs->rememberInput(text);
     m_status->setText(QStringLiteral("已导入 %1 字节，更新 %2 个字段。可直接修改字段值，再点击“查看二进制”生成新数据。只读字段和填充字节未保存。")
                       .arg(hex.bytes.size()).arg(result.editableValues.size()));
@@ -307,74 +194,8 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
 
     layout->addWidget(createTitleBar());
 
-    auto *definitionPanel = new QFrame(this);
-    definitionPanel->setObjectName(QStringLiteral("definitionPanel"));
-    auto *definitionLayout = new QVBoxLayout(definitionPanel);
-    definitionLayout->setContentsMargins(16, 14, 16, 14);
-    definitionLayout->setSpacing(10);
-    layout->addWidget(definitionPanel);
-
-    auto *sourceRow = new QHBoxLayout;
-    sourceRow->addWidget(new QLabel(QStringLiteral("结构定义文件："), this));
-    m_filePath = new QLineEdit(QDir::toNativeSeparators(filePath), this);
-    // objectName 是程序内部标识，测试和 findChild() 用它查找控件，不是界面显示文字。
-    m_filePath->setObjectName(QStringLiteral("headerFilePath"));
-    m_filePath->setPlaceholderText(QStringLiteral("输入头文件或结构定义 JSON 路径，按回车加载"));
-    sourceRow->addWidget(m_filePath, 1);
-    auto *openButton = new QPushButton(QStringLiteral("打开结构定义…"), this);
-    openButton->setObjectName(QStringLiteral("openDefinitionButton"));
-    auto *reloadButton = new QPushButton(QStringLiteral("重新加载"), this);
-    reloadButton->setObjectName(QStringLiteral("reloadDefinitionButton"));
-    sourceRow->addWidget(openButton);
-    sourceRow->addWidget(reloadButton);
-    definitionLayout->addLayout(sourceRow);
-    m_sourceInfo = new QLabel(this);
-    m_sourceInfo->setObjectName(QStringLiteral("definitionSourceInfo"));
-    m_sourceInfo->setTextFormat(Qt::PlainText);
-    m_sourceInfo->setWordWrap(true);
-    definitionLayout->addWidget(m_sourceInfo);
-
-    auto *nameRow = new QHBoxLayout;
-    auto *nameLabel = new QLabel(QStringLiteral("选择结构体："), this);
-    nameRow->addWidget(nameLabel);
-    m_structName = new QComboBox(this);
-    m_structName->setObjectName(QStringLiteral("structSelector"));
-    m_structName->setMinimumContentsLength(24);
-    m_structName->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    nameLabel->setBuddy(m_structName);
-    nameRow->addWidget(m_structName, 1);
-    auto *expandButton = new QPushButton(QStringLiteral("全部展开"), this);
-    auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
-    nameRow->addWidget(expandButton);
-    nameRow->addWidget(collapseButton);
-    definitionLayout->addLayout(nameRow);
-    auto *actionRow = new QHBoxLayout;
-    m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
-    m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
-    m_binaryButton->setEnabled(false);
-    m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
-    actionRow->addWidget(m_binaryButton);
-    m_importHexButton = new QPushButton(QStringLiteral("导入16进制数据"), this);
-    m_importHexButton->setObjectName(QStringLiteral("importHexDataButton"));
-    m_importHexButton->setEnabled(false);
-    m_importHexButton->setToolTip(QStringLiteral("粘贴已保存的小端十六进制数据，导入当前结构体后继续编辑字段值。"));
-    actionRow->addWidget(m_importHexButton);
-    m_importHexFileButton = new QPushButton(QStringLiteral("从文件导入16进制数据"), this);
-    m_importHexFileButton->setObjectName(QStringLiteral("importHexFileButton"));
-    m_importHexFileButton->setEnabled(false);
-    m_importHexFileButton->setToolTip(QStringLiteral("选择 .hex 或 .txt 十六进制文本文件，导入当前结构体后继续编辑。"));
-    actionRow->addWidget(m_importHexFileButton);
-    m_decodeButton = new QPushButton(QStringLiteral("解析十六进制…"), this);
-    m_decodeButton->setObjectName(QStringLiteral("decodeHexButton"));
-    m_decodeButton->setEnabled(false);
-    actionRow->addWidget(m_decodeButton);
-    m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
-    m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
-    m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
-    m_exportDefinitionButton->setEnabled(false);
-    actionRow->addWidget(m_exportDefinitionButton);
-    actionRow->addStretch();
-    layout->addLayout(actionRow);
+    layout->addWidget(createDefinitionPanel(filePath));
+    layout->addWidget(createActionPanel());
 
     m_structureName = new QLabel(this);
     m_structureName->setObjectName(QStringLiteral("structureName"));
@@ -392,45 +213,9 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
     structureRow->addWidget(m_summary);
     layout->addLayout(structureRow);
-    m_valueStatus = new QLabel(this);
-    m_valueStatus->setObjectName(QStringLiteral("fieldValueStatus"));
-    m_valueStatus->setTextFormat(Qt::PlainText);
-    m_valueStatus->setWordWrap(true);
-    layout->addWidget(m_valueStatus);
-
-    // 布局列只读；“值”列用独立编辑控件，校验后的值与布局元数据分开保存。
-    m_fields = new QTreeWidget(this);
-    m_fields->setObjectName(QStringLiteral("fieldsTree"));
-    m_fields->setColumnCount(10);
-    m_fields->setHeaderLabels(QStringList{
-        QStringLiteral("字段名称"), QStringLiteral("值"),
-        QStringLiteral("字段类型"), QStringLiteral("展开后的类型"),
-        QStringLiteral("大小（字节）"), QStringLiteral("自然对齐（字节）"),
-        QStringLiteral("相对偏移（字节）"), QStringLiteral("绝对偏移（字节）"),
-        QStringLiteral("相对偏移（bit）"), QStringLiteral("绝对偏移（bit）")
-    });
-    m_fields->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_fields->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_fields->setAlternatingRowColors(true);
-    m_fields->setWordWrap(false);
-    m_fields->setAnimated(true);
-    m_fields->header()->setStretchLastSection(false);
-    m_fields->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_fields->header()->setMinimumSectionSize(80);
-    m_fields->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_fields->setColumnWidth(1, 190);
-    m_fields->headerItem()->setToolTip(1, QStringLiteral("基础类型可赋值，嵌套结构体作为分组；指针、引用和数组暂时只读。"));
-    m_fields->headerItem()->setToolTip(3,
-        QStringLiteral("展开 typedef 等类型别名，例如 uint16_t 对应 unsigned short。"));
-    m_fields->headerItem()->setToolTip(5,
-        QStringLiteral("类型本身的自然对齐，可能大于结构体 pack 指定的对齐值。"));
-    for (int column : {6, 8})
-        m_fields->headerItem()->setToolTip(column,
-            QStringLiteral("字段相对于直接所属结构体起点的偏移。"));
-    for (int column : {7, 9})
-        m_fields->headerItem()->setToolTip(column,
-            QStringLiteral("字段相对于最外层结构体起点的累计偏移。"));
-    layout->addWidget(m_fields, 1);
+    m_fieldEditor = new FieldEditor(this);
+    layout->addWidget(m_fieldEditor, 1);
+    connect(m_fieldEditor, &FieldEditor::validityChanged, this, [this](bool) { updateValueStatus(); });
 
     m_status = new QLabel(this);
     m_status->setObjectName(QStringLiteral("operationStatus"));
@@ -442,27 +227,6 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_diagnostics->setMaximumHeight(130);
     layout->addWidget(m_diagnostics);
 
-    // 按钮只触发“重新读取文件并刷新界面”，不参与 libclang 的 AST 遍历。
-    connect(reloadButton, &QPushButton::clicked, this, [this] { reloadDefinition(); });
-    connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadDefinition(); });
-    connect(m_structName, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this] { showSelectedStructure(); });
-    connect(expandButton, &QPushButton::clicked, m_fields, &QTreeWidget::expandAll);
-    connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
-    connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
-    connect(m_decodeButton, &QPushButton::clicked, this, [this] { showHexDecoder(); });
-    connect(m_importHexButton, &QPushButton::clicked, this, [this] { showHexImporter(); });
-    connect(m_importHexFileButton, &QPushButton::clicked, this, [this] { importHexFile(); });
-    connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
-    connect(openButton, &QPushButton::clicked, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(
-            this, QStringLiteral("打开结构定义"), m_filePath->text(),
-            QStringLiteral("结构定义 (*.h *.hpp *.hh *.hxx *.json);;C++ 头文件 (*.h *.hpp *.hh *.hxx);;结构定义 JSON (*.json);;所有文件 (*)"));
-        if (!path.isEmpty()) {
-            m_filePath->setText(QDir::toNativeSeparators(path));
-            reloadDefinition();
-        }
-    });
     reloadDefinition();
 }
 
@@ -523,16 +287,13 @@ void MainWindow::showSelectedStructure()
                                            : QStringLiteral("    |    加载失败")));
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
-    m_fields->clear();
     const QString source = m_loadedPath + QLatin1Char('\n') + structName;
-    // 只有同一文件、同一结构体才复用旧输入；具体字段是否仍合法由 appendFields() 检查。
+    // 只有同一文件、同一结构体才复用旧输入；具体字段是否仍合法由 FieldEditor 检查。
     const QHash<QString, QString> previousValues = source == m_valuesSource
-        ? m_fieldValues : QHash<QString, QString>();
-    m_fieldValues.clear();
-    m_valueErrors.clear();
-    m_valuesSource.clear();
-    m_valueStatus->clear();
+        ? fieldValues() : QHash<QString, QString>();
     m_hasStructure = false;
+    m_fieldEditor->clear();
+    m_valuesSource.clear();
     m_parsedStructure = StructInfo();
     m_parseDiagnostics = result.diagnostics;
     m_binaryButton->setEnabled(false);
@@ -561,18 +322,110 @@ void MainWindow::showSelectedStructure()
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));
     m_summary->setText(QStringLiteral("%1 个直接字段    |    大小：%2 字节    |    结构体对齐：%3 字节")
                            .arg(structure.fields.size()).arg(structure.size).arg(structure.alignment));
-    auto *root = new QTreeWidgetItem(m_fields, QStringList{
-        structure.name, QStringLiteral("分组"), QStringLiteral("struct"), structure.name,
-        QString::number(structure.size), QString::number(structure.alignment),
-        QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0")
-    });
-    for (int column = 4; column < root->columnCount(); ++column)
-        root->setTextAlignment(column, Qt::AlignCenter);
-    appendFields(root, structure.fields, QString(), previousValues);
+    m_fieldEditor->setStructure(structure, previousValues);
     updateValueStatus();
-    // 默认展开根节点和第一层嵌套；更深层可手动展开或点击“全部展开”。
-    m_fields->expandToDepth(1);
     m_status->setText(result.diagnostics.isEmpty()
         ? QStringLiteral("加载成功。点击箭头展开或折叠嵌套字段；修改并保存结构定义文件后，点击“重新加载”更新。")
         : QStringLiteral("加载成功，下方有诊断提示。"));
+}
+
+QWidget *MainWindow::createDefinitionPanel(const QString &filePath)
+{
+    auto *definitionPanel = new QFrame(this);
+    definitionPanel->setObjectName(QStringLiteral("definitionPanel"));
+    auto *definitionLayout = new QVBoxLayout(definitionPanel);
+    definitionLayout->setContentsMargins(16, 14, 16, 14);
+    definitionLayout->setSpacing(10);
+
+    auto *sourceRow = new QHBoxLayout;
+    sourceRow->addWidget(new QLabel(QStringLiteral("结构定义文件："), this));
+    m_filePath = new QLineEdit(QDir::toNativeSeparators(filePath), this);
+    // objectName 是程序内部标识，测试和 findChild() 用它查找控件，不是界面显示文字。
+    m_filePath->setObjectName(QStringLiteral("headerFilePath"));
+    m_filePath->setPlaceholderText(QStringLiteral("输入头文件或结构定义 JSON 路径，按回车加载"));
+    sourceRow->addWidget(m_filePath, 1);
+    auto *openButton = new QPushButton(QStringLiteral("打开结构定义…"), this);
+    openButton->setObjectName(QStringLiteral("openDefinitionButton"));
+    auto *reloadButton = new QPushButton(QStringLiteral("重新加载"), this);
+    reloadButton->setObjectName(QStringLiteral("reloadDefinitionButton"));
+    sourceRow->addWidget(openButton);
+    sourceRow->addWidget(reloadButton);
+    definitionLayout->addLayout(sourceRow);
+    m_sourceInfo = new QLabel(this);
+    m_sourceInfo->setObjectName(QStringLiteral("definitionSourceInfo"));
+    m_sourceInfo->setTextFormat(Qt::PlainText);
+    m_sourceInfo->setWordWrap(true);
+    definitionLayout->addWidget(m_sourceInfo);
+
+    auto *nameRow = new QHBoxLayout;
+    auto *nameLabel = new QLabel(QStringLiteral("选择结构体："), this);
+    nameRow->addWidget(nameLabel);
+    m_structName = new QComboBox(this);
+    m_structName->setObjectName(QStringLiteral("structSelector"));
+    m_structName->setMinimumContentsLength(24);
+    m_structName->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    nameLabel->setBuddy(m_structName);
+    nameRow->addWidget(m_structName, 1);
+    auto *expandButton = new QPushButton(QStringLiteral("全部展开"), this);
+    auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
+    nameRow->addWidget(expandButton);
+    nameRow->addWidget(collapseButton);
+    definitionLayout->addLayout(nameRow);
+    // 按钮只触发“重新读取文件并刷新界面”，不参与 libclang 的 AST 遍历。
+    connect(reloadButton, &QPushButton::clicked, this, [this] { reloadDefinition(); });
+    connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadDefinition(); });
+    connect(m_structName, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this] { showSelectedStructure(); });
+    connect(expandButton, &QPushButton::clicked, this, [this] { m_fieldEditor->expandAll(); });
+    connect(collapseButton, &QPushButton::clicked, this, [this] { m_fieldEditor->collapseAll(); });
+    connect(openButton, &QPushButton::clicked, this, [this] {
+        const QString path = QFileDialog::getOpenFileName(
+            this, QStringLiteral("打开结构定义"), m_filePath->text(),
+            QStringLiteral("结构定义 (*.h *.hpp *.hh *.hxx *.json);;C++ 头文件 (*.h *.hpp *.hh *.hxx);;结构定义 JSON (*.json);;所有文件 (*)"));
+        if (!path.isEmpty()) {
+            m_filePath->setText(QDir::toNativeSeparators(path));
+            reloadDefinition();
+        }
+    });
+    return definitionPanel;
+}
+
+QWidget *MainWindow::createActionPanel()
+{
+    auto *panel = new QWidget(this);
+    auto *actionRow = new QHBoxLayout;
+    actionRow->setContentsMargins(0, 0, 0, 0);
+    m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
+    m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
+    m_binaryButton->setEnabled(false);
+    m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
+    actionRow->addWidget(m_binaryButton);
+    m_importHexButton = new QPushButton(QStringLiteral("导入16进制数据"), this);
+    m_importHexButton->setObjectName(QStringLiteral("importHexDataButton"));
+    m_importHexButton->setEnabled(false);
+    m_importHexButton->setToolTip(QStringLiteral("粘贴已保存的小端十六进制数据，导入当前结构体后继续编辑字段值。"));
+    actionRow->addWidget(m_importHexButton);
+    m_importHexFileButton = new QPushButton(QStringLiteral("从文件导入16进制数据"), this);
+    m_importHexFileButton->setObjectName(QStringLiteral("importHexFileButton"));
+    m_importHexFileButton->setEnabled(false);
+    m_importHexFileButton->setToolTip(QStringLiteral("选择 .hex 或 .txt 十六进制文本文件，导入当前结构体后继续编辑。"));
+    actionRow->addWidget(m_importHexFileButton);
+    m_decodeButton = new QPushButton(QStringLiteral("解析十六进制…"), this);
+    m_decodeButton->setObjectName(QStringLiteral("decodeHexButton"));
+    m_decodeButton->setEnabled(false);
+    actionRow->addWidget(m_decodeButton);
+    m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
+    m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
+    m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
+    m_exportDefinitionButton->setEnabled(false);
+    actionRow->addWidget(m_exportDefinitionButton);
+    actionRow->addStretch();
+    panel->setLayout(actionRow);
+
+    connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
+    connect(m_decodeButton, &QPushButton::clicked, this, [this] { showHexDecoder(); });
+    connect(m_importHexButton, &QPushButton::clicked, this, [this] { showHexImporter(); });
+    connect(m_importHexFileButton, &QPushButton::clicked, this, [this] { importHexFile(); });
+    connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
+    return panel;
 }

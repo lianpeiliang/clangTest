@@ -30,3 +30,6 @@ DEFINES += MSG_HEADER_PATH=\\\"$$PWD/TestHeader/MsgHeader.h\\\"
 
 SOURCES += framelesswindow.cpp hexdialogs.cpp
 HEADERS += framelesswindow.h hexdialogs.h
+
+SOURCES += fieldeditor.cpp
+HEADERS += fieldeditor.h

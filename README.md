@@ -14,7 +14,8 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 | --- | --- |
 | `clangTest.pro` | Qt 项目配置及 libclang 链接配置 |
 | `main.cpp` | 创建 QApplication，启动窗口 |
-| `mainwindow.h / .cpp` | 使用 QTreeWidget 显示结构体成员树及解析诊断 |
+| `mainwindow.h / .cpp` | 协调结构定义加载、字段编辑区、操作按钮及解析诊断 |
+| `fieldeditor.h / .cpp` | 独立字段编辑区，管理树形控件、输入值、校验和填回 |
 | `framelesswindow.h / .cpp` | 自定义标题栏、窗口按钮及 Windows 原生拖动、缩放、工作区处理 |
 | `hexdialogs.h / .cpp` | 十六进制预览、复制/导出、解析与粘贴导入弹窗及输入记忆 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
@@ -42,7 +43,7 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 
 ## 建议阅读顺序
 
-界面按职责分为三块：`MainWindow` 负责主界面、结构定义加载、字段值和校验状态；基类 `FramelessWindow` 只处理标题栏与系统窗口行为；`HexDialogs` 只持有弹窗状态，通过回调请求填回字段或导入文本，不直接访问主窗口的编辑控件。编码、解码及定义 JSON 继续由各自模块完成。弹窗以主窗口为 Qt 父对象，切换结构定义时由主窗口通知关闭编辑弹窗。
+界面按职责分为四块：`MainWindow` 组织主界面，协调结构定义加载与操作按钮；`FieldEditor` 独立持有字段树、输入值和校验状态，通过信号通知主窗口更新按钮；基类 `FramelessWindow` 只处理标题栏与系统窗口行为；`HexDialogs` 持有弹窗状态，通过回调请求填回字段或导入文本。编码、解码及定义 JSON 继续由各自模块完成。弹窗以主窗口为 Qt 父对象，切换结构定义时由主窗口通知关闭编辑弹窗。`tests/fieldeditor-tests.pro` 检查编辑区脱离主窗口后的独立使用、校验通知、填回、原值恢复和清空。
 
 初次阅读可以先打开 `TestHeader/MinimalMsgHeader.h`，对照这个只有两个字段的样例，再按下面的顺序看源码：
 
