@@ -571,21 +571,22 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     auto *brand = new QFrame(this);
     m_titleBar = brand;
     brand->setObjectName(QStringLiteral("brandHeader"));
+    brand->setFixedHeight(44);
     auto *brandRow = new QHBoxLayout(brand);
-    brandRow->setContentsMargins(14, 6, 10, 6);
-    brandRow->setSpacing(12);
+    brandRow->setContentsMargins(12, 4, 8, 4);
+    brandRow->setSpacing(8);
     auto *logo = new QLabel(brand);
-    logo->setPixmap(QIcon(QStringLiteral(":/icons/structhex.png")).pixmap(48, 48));
+    logo->setPixmap(QIcon(QStringLiteral(":/icons/structhex.png")).pixmap(32, 32));
     brandRow->addWidget(logo);
-    auto *brandText = new QVBoxLayout;
-    brandText->setSpacing(2);
     auto *brandTitle = new QLabel(QStringLiteral("StructHex"), brand);
     brandTitle->setObjectName(QStringLiteral("brandTitle"));
     auto *brandSubtitle = new QLabel(QStringLiteral("结构体数据编辑器"), brand);
     brandSubtitle->setObjectName(QStringLiteral("brandSubtitle"));
-    brandText->addWidget(brandTitle);
-    brandText->addWidget(brandSubtitle);
-    brandRow->addLayout(brandText);
+    auto *separator = new QLabel(QStringLiteral("·"), brand);
+    separator->setObjectName(QStringLiteral("brandSeparator"));
+    brandRow->addWidget(brandTitle);
+    brandRow->addWidget(separator);
+    brandRow->addWidget(brandSubtitle);
     brandRow->addStretch();
     auto *badge = new QLabel(QStringLiteral("C / C++  ·  HEX"), brand);
     badge->setObjectName(QStringLiteral("brandBadge"));
@@ -602,7 +603,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     close->setToolTip(QStringLiteral("关闭"));
     close->setAccessibleName(QStringLiteral("关闭"));
     for (auto *button : {minimize, m_maximizeButton, close}) {
-        button->setFixedSize(40, 36);
+        button->setFixedSize(36, 30);
         brandRow->addWidget(button);
     }
     connect(minimize, &QPushButton::clicked, this, &QWidget::showMinimized);

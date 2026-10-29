@@ -8,16 +8,17 @@ QFrame#brandHeader {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #AB61D0, stop:0.55 #9255C6, stop:1 #794DC5);
     border: 1px solid #A36BD0;
-    border-radius: 14px;
+    border-radius: 0;
 }
-QLabel#brandTitle { color: white; font-size: 24px; font-weight: 600; }
-QLabel#brandSubtitle { color: #F5EAFB; font-size: 12px; }
+QLabel#brandTitle { color: white; font-size: 20px; font-weight: 600; }
+QLabel#brandSeparator { color: #F5EAFB; font-size: 18px; }
+QLabel#brandSubtitle { color: #F5EAFB; font-size: 13px; }
 QLabel#brandBadge {
     color: white;
     background-color: rgba(255, 255, 255, 28);
     border: 1px solid rgba(255, 255, 255, 65);
-    border-radius: 12px;
-    padding: 7px 14px;
+    border-radius: 6px;
+    padding: 3px 10px;
     font-weight: 600;
 }
 QFrame#brandHeader QPushButton {
