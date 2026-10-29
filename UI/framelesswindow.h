@@ -26,7 +26,7 @@ protected:
     // 显示窗口时补齐 Windows 的缩放、最小化和最大化能力。
     void showEvent(QShowEvent *event) override;
 
-    // 窗口状态变化后，同步最大化/还原按钮的文字和提示。
+    // 窗口状态变化后，同步最大化/还原按钮的图形和提示。
     void changeEvent(QEvent *event) override;
 
 private:

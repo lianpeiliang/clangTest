@@ -5,11 +5,52 @@
 #include <QIcon>
 #include <QLabel>
 #include <QPushButton>
+#include <QPainter>
 #include <QShowEvent>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <windowsx.h>
 #endif
+
+namespace {
+
+// 统一使用逻辑像素绘制窗口图标，避免文字字形随字体变化而大小不一。
+class WindowControlButton : public QPushButton
+{
+public:
+    enum Action { Minimize, Maximize, Close };
+    WindowControlButton(Action action, QWidget *parent) : QPushButton(parent), m_action(action) {}
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        QPushButton::paintEvent(event); // 保留 QSS 的悬停、按下和键盘焦点效果。
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(Qt::white, 1.25, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+        const qreal x = width() / 2.0 - 5;
+        const qreal y = height() / 2.0 - 5;
+        if (m_action == Minimize) {
+            painter.drawLine(QPointF(x, y + 5), QPointF(x + 10, y + 5));
+        } else if (m_action == Close) {
+            painter.drawLine(QPointF(x, y), QPointF(x + 10, y + 10));
+            painter.drawLine(QPointF(x + 10, y), QPointF(x, y + 10));
+        } else if (window()->isMaximized()) {
+            painter.drawLine(QPointF(x + 3, y + 3), QPointF(x + 3, y));
+            painter.drawLine(QPointF(x + 3, y), QPointF(x + 10, y));
+            painter.drawLine(QPointF(x + 10, y), QPointF(x + 10, y + 7));
+            painter.drawLine(QPointF(x + 10, y + 7), QPointF(x + 7, y + 7));
+            painter.drawRect(QRectF(x, y + 3, 7, 7));
+        } else {
+            painter.drawRect(QRectF(x, y, 10, 10));
+        }
+    }
+
+private:
+    Action m_action;
+};
+
+} // namespace
 
 FramelessWindow::FramelessWindow(QWidget *parent) : QWidget(parent)
 {
@@ -42,17 +83,17 @@ QFrame *FramelessWindow::createTitleBar()
     badge->setObjectName(QStringLiteral("brandBadge"));
     brandRow->addWidget(badge);
     brandRow->addSpacing(12);
-    auto *minimize = new QPushButton(QStringLiteral("—"), brand);
+    auto *minimize = new WindowControlButton(WindowControlButton::Minimize, brand);
     minimize->setObjectName(QStringLiteral("minimizeWindowButton"));
     minimize->setToolTip(QStringLiteral("最小化"));
     minimize->setAccessibleName(QStringLiteral("最小化"));
-    m_maximizeButton = new QPushButton(QStringLiteral("□"), brand);
+    m_maximizeButton = new WindowControlButton(WindowControlButton::Maximize, brand);
     m_maximizeButton->setObjectName(QStringLiteral("maximizeWindowButton"));
-    auto *close = new QPushButton(QStringLiteral("×"), brand);
+    auto *close = new WindowControlButton(WindowControlButton::Close, brand);
     close->setObjectName(QStringLiteral("closeWindowButton"));
     close->setToolTip(QStringLiteral("关闭"));
     close->setAccessibleName(QStringLiteral("关闭"));
-    for (auto *button : {minimize, m_maximizeButton, close}) {
+    for (QPushButton *button : {static_cast<QPushButton *>(minimize), m_maximizeButton, static_cast<QPushButton *>(close)}) {
         button->setFixedSize(36, 30);
         brandRow->addWidget(button);
     }
@@ -70,7 +111,7 @@ void FramelessWindow::updateWindowControls()
     if (!m_maximizeButton)
         return;
     const QString action = isMaximized() ? QStringLiteral("还原") : QStringLiteral("最大化");
-    m_maximizeButton->setText(isMaximized() ? QStringLiteral("❐") : QStringLiteral("□"));
+    m_maximizeButton->update();
     m_maximizeButton->setToolTip(action);
     m_maximizeButton->setAccessibleName(action);
 }
