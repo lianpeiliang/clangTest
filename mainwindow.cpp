@@ -184,8 +184,10 @@ void MainWindow::showBinary()
     copy->setObjectName(QStringLiteral("copyHexButton"));
     const QByteArray bytes = result.bytes;
     // 按值捕获 bytes，复制按钮使用的是打开弹窗那一刻的快照。
-    connect(copy, &QPushButton::clicked, dialog, [bytes] {
+    connect(copy, &QPushButton::clicked, dialog, [bytes, exportStatus] {
         QApplication::clipboard()->setText(QString::fromLatin1(bytes.toHex(' ').toUpper()));
+        exportStatus->setText(QStringLiteral("复制成功：已将 %1 字节的十六进制数据复制到剪贴板。")
+                              .arg(bytes.size()));
     });
     const QString suggested = QFileInfo(m_loadedPath).dir().filePath(
         QString(m_parsedStructure.name).replace(QStringLiteral("::"), QStringLiteral("_")) + QStringLiteral(".hex"));
