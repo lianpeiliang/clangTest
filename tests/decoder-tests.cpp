@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QFile>
+#include <QFileDialog>
 #include <QFontDatabase>
 #include <QLabel>
 #include <QLineEdit>
@@ -16,14 +17,43 @@
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QTimer>
 #include <QTreeWidget>
 
 #define CHECK(condition) do { if (!(condition)) { \
     QTextStream(stderr) << "FAIL at line " << __LINE__ << ": " << #condition << '\n'; return 1; \
 } } while (false)
 
+static bool writeFile(const QString &path, const QByteArray &contents)
+{
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(contents) == contents.size();
+}
+
+static void answerFileDialog(const QString &path, bool removeAfterSelection = false)
+{
+    QTimer::singleShot(0, [path, removeAfterSelection] {
+        for (QWidget *widget : QApplication::topLevelWidgets()) {
+            auto *dialog = qobject_cast<QFileDialog *>(widget);
+            if (!dialog || !dialog->isVisible())
+                continue;
+            if (path.isEmpty()) {
+                dialog->reject();
+            } else {
+                dialog->selectFile(path);
+                QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+                if (removeAfterSelection && !QFile::remove(path))
+                    qFatal("Could not remove temporary input file");
+            }
+            return;
+        }
+        qFatal("File dialog not found");
+    });
+}
+
 int main(int argc, char **argv)
 {
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/msyh.ttc");
     QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/consola.ttf");
@@ -244,6 +274,72 @@ int main(int argc, char **argv)
     if (app.arguments().size() > 3)
         CHECK(window.grab().save(app.arguments().at(3)));
 
+    // 文件往返：导出修改后的预览，再读入主界面，继续修改并重新编码。
+    auto *importFile = window.findChild<QPushButton *>("importHexFileButton");
+    auto *operationStatus = window.findChild<QLabel *>("operationStatus");
+    CHECK(importFile && importFile->isEnabled() && operationStatus);
+    const QString exportedPath = temporary.path() + QStringLiteral("/保存的数据.hex");
+    binary->click();
+    preview = window.findChild<QDialog *>("binaryPreviewDialog");
+    CHECK(preview);
+    answerFileDialog(exportedPath);
+    preview->findChild<QPushButton *>("exportHexFileButton")->click();
+    preview->close();
+    app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    sequence->setText("invalid");
+    answerFileDialog(exportedPath);
+    importFile->click();
+    auto modifiedExpected = expected;
+    modifiedExpected["address.destination"] = "30600";
+    CHECK(window.fieldValues() == modifiedExpected && !window.hasInvalidFieldValues());
+    CHECK(sequence->text() == "305419896" && destination->text() == "30600");
+    CHECK(operationStatus->text().contains(QStringLiteral("保存的数据.hex")));
+    destination->setText("0x99AA");
+    CHECK(encodeStructure(nested.structure, window.fieldValues()).bytes.toHex() == "785634122211aa996655");
+
+    const auto beforeFailedFile = window.fieldValues();
+    sequence->setText("invalid");
+    CHECK(importFile->isEnabled());
+    const QString badInput = temporary.path() + "/bad.txt";
+    for (const QByteArray &text : QList<QByteArray>{"", "GG", "123", "78 56", "7856341222114433665500"}) {
+        CHECK(writeFile(badInput, text));
+        answerFileDialog(badInput);
+        importFile->click();
+        CHECK(window.fieldValues() == beforeFailedFile && window.hasInvalidFieldValues());
+        CHECK(sequence->text() == "invalid" && operationStatus->text().contains(QStringLiteral("导入失败")));
+    }
+    const QString statusBeforeCancel = operationStatus->text();
+    answerFileDialog(QString());
+    importFile->click();
+    CHECK(operationStatus->text() == statusBeforeCancel && window.fieldValues() == beforeFailedFile);
+    CHECK(writeFile(badInput, known.toHex()));
+    answerFileDialog(badInput, true);
+    importFile->click();
+    CHECK(operationStatus->text().contains(QStringLiteral("无法读取")) && window.fieldValues() == beforeFailedFile);
+    QFile largeFile(badInput);
+    CHECK(largeFile.open(QIODevice::WriteOnly) && largeFile.resize(8 * 1024 * 1024 + 1));
+    largeFile.close();
+    answerFileDialog(badInput);
+    importFile->click();
+    CHECK(operationStatus->text().contains("8 MiB") && window.fieldValues() == beforeFailedFile);
+    CHECK(sequence->text() == "invalid");
+
+    const QString bomInput = temporary.path() + QStringLiteral("/带BOM的文本.txt");
+    CHECK(writeFile(bomInput, QByteArray::fromHex("efbbbf") + "0x78, 0X56, 34 12\r\n22 11 44 33 66 55\r\n"));
+    answerFileDialog(bomInput);
+    importFile->click();
+    CHECK(window.fieldValues() == expected && !window.hasInvalidFieldValues());
+    CHECK(sequence->text() == "305419896" && destination->text() == "13124");
+    app.processEvents();
+    if (app.arguments().size() > 4)
+        CHECK(window.grab().save(app.arguments().at(4)));
+
+    MainWindow headerWindow(testHeaders + "/NestedPacketHeader.h");
+    headerWindow.findChild<QComboBox *>("structSelector")->setCurrentText("NestedPacketHeader");
+    answerFileDialog(bomInput);
+    headerWindow.findChild<QPushButton *>("importHexFileButton")->click();
+    CHECK(headerWindow.fieldValues() == expected);
+
     // 导入完整的整数/浮点/布尔值，覆盖已有值并验证主界面与重新编码结果。
     const QString valuesJson = temporary.path() + "/Values.json";
     CHECK(saveStructureDefinitionJson(values.structure, valuesJson));
@@ -259,6 +355,11 @@ int main(int argc, char **argv)
     CHECK(!valuesDialog->isVisible() && valuesWindow.fieldValues() == limits);
     CHECK(active->currentText() == "true" && !valuesWindow.hasInvalidFieldValues());
     CHECK(encodeStructure(values.structure, valuesWindow.fieldValues()).bytes == encoded.bytes);
+    active->setCurrentText("false");
+    CHECK(writeFile(badInput, encoded.bytes.toHex(' ')));
+    answerFileDialog(badInput);
+    valuesWindow.findChild<QPushButton *>("importHexFileButton")->click();
+    CHECK(active->currentText() == "true" && valuesWindow.fieldValues() == limits);
 
     // 非有限值不能只导入一部分，否则主界面会混合旧值和导入值。
     const QString floatsJson = temporary.path() + "/Floats.json";
@@ -274,6 +375,11 @@ int main(int argc, char **argv)
     CHECK(floatsDialog->isVisible() && floatsWindow.fieldValues() == originalFloats);
     CHECK(floatsDialog->findChild<QLabel *>("hexImportStatus")->text().contains("real"));
     floatsDialog->reject();
+    CHECK(writeFile(badInput, "0000c03f000000000000f07f"));
+    answerFileDialog(badInput);
+    floatsWindow.findChild<QPushButton *>("importHexFileButton")->click();
+    CHECK(floatsWindow.fieldValues() == originalFloats);
+    CHECK(floatsWindow.findChild<QLabel *>("operationStatus")->text().contains("real"));
 
     // 重载会关闭导入窗口；立即再次导入应更新新树，而非待销毁的旧控件。
     importData->click();
@@ -296,10 +402,10 @@ int main(int argc, char **argv)
     auto *source = window.findChild<QLineEdit *>("headerFilePath");
     source->setText(temporary.path() + "/missing.json");
     CHECK(QMetaObject::invokeMethod(source, "returnPressed"));
-    CHECK(!open->isEnabled() && !importData->isEnabled());
+    CHECK(!open->isEnabled() && !importData->isEnabled() && !importFile->isEnabled());
     for (auto *child : window.findChildren<QDialog *>("hexImportDialog"))
         CHECK(!child->isVisible());
     QTextStream(stdout) << "PASS: strict hex, endian, nested/JSON, padding, integer limits, signed bitfields, "
-                          "floating values, raw arrays/pointers, layout errors, decode/apply and direct import/edit UI\n";
+                          "floating values, raw arrays/pointers, layout errors, decode/apply, direct and file import/edit UI\n";
     return 0;
 }

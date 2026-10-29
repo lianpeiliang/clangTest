@@ -44,7 +44,7 @@ private:
     // 汇总输入错误，并更新“查看二进制”按钮是否可用。
     void updateValueStatus();
 
-    // 编码当前字段值，弹窗显示十六进制快照，并提供复制按钮。
+    // 编码当前字段值，弹窗显示十六进制快照，并提供复制和导出文件按钮。
     void showBinary();
 
     // 打开十六进制解码弹窗；先预览结果，由用户点击按钮后再填回可编辑字段。
@@ -52,6 +52,12 @@ private:
 
     // 输入完整的小端十六进制数据，校验成功后直接导入当前结构体并关闭弹窗。
     void showHexImporter();
+
+    // 读取十六进制文本文件，校验成功后直接更新主界面的可编辑字段。
+    void importHexFile();
+
+    // 粘贴导入与文件导入共用；失败时保留全部字段值，并返回错误原因。
+    bool importHexText(const QString &text, QString &error);
 
     // 通过当前树上的编辑控件更新值，复用手动输入的校验和错误状态同步。
     void applyDecodedValues(const QHash<QString, QString> &values);
@@ -75,6 +81,7 @@ private:
     QPushButton *m_binaryButton;           // “查看二进制”按钮，需有结构体且输入全部合法。
     QPushButton *m_decodeButton;           // “解析十六进制”按钮，加载结构体成功后可用。
     QPushButton *m_importHexButton;        // “导入16进制数据”按钮，允许覆盖当前无效输入。
+    QPushButton *m_importHexFileButton;    // “从文件导入16进制数据”按钮，需先加载结构体。
     QPushButton *m_exportDefinitionButton; // “导出结构定义 JSON”按钮，不要求字段输入值全部合法。
     StructInfo m_parsedStructure; // 当前正在显示、编辑和导出的结构体。
     QStringList m_parseDiagnostics; // 当前所选结构体及其来源文件的加载诊断，用于恢复诊断显示。

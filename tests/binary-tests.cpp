@@ -1,4 +1,5 @@
 #include "binaryencoder.h"
+#include "binarydecoder.h"
 #include "fieldvalue.h"
 #include "mainwindow.h"
 
@@ -6,14 +7,19 @@
 #include <QComboBox>
 #include <QClipboard>
 #include <QDialog>
+#include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFontDatabase>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QTimer>
 #include <QTreeWidget>
 #include <cstddef>
 #include <cstring>
@@ -47,8 +53,43 @@ static bool writeSource(const QString &path, const QByteArray &source)
     return file.open(QIODevice::WriteOnly) && file.write(source) == source.size();
 }
 
+static QByteArray readFile(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+static void answerSaveDialog(const QString &path, const QString &filter = QString(),
+                             bool removeParent = false)
+{
+    QTimer::singleShot(0, [path, filter, removeParent] {
+        for (QWidget *widget : QApplication::topLevelWidgets()) {
+            auto *dialog = qobject_cast<QFileDialog *>(widget);
+            if (!dialog || !dialog->isVisible())
+                continue;
+            if (path.isEmpty()) {
+                dialog->reject();
+            } else {
+                if (!filter.isEmpty()) {
+                    dialog->selectNameFilter(filter);
+                    // selectNameFilter 不发出用户选择信号，补发以模拟切换文件类型。
+                    QMetaObject::invokeMethod(dialog, "filterSelected", Qt::DirectConnection, Q_ARG(QString, filter));
+                }
+                dialog->selectFile(path);
+                QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+                // 模拟选定位置后目录消失，以验证真正的写入失败处理。
+                if (removeParent && !QDir().rmdir(QFileInfo(path).absolutePath()))
+                    qFatal("Could not remove temporary export directory");
+            }
+            return;
+        }
+        qFatal("Save dialog not found");
+    });
+}
+
 int main(int argc, char **argv)
 {
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
 #ifdef Q_OS_WIN
     if (QApplication::platformName() == "offscreen") {
@@ -259,6 +300,39 @@ int main(int argc, char **argv)
     app.processEvents();
     if (app.arguments().size() > 1)
         CHECK(dialog->grab().save(app.arguments().at(1)));
+    auto *exportHex = dialog->findChild<QPushButton *>("exportHexFileButton");
+    auto *exportStatus = dialog->findChild<QLabel *>("hexExportStatus");
+    CHECK(exportHex && exportHex->isEnabled() && exportStatus);
+    const auto valuesBeforeExport = window.fieldValues();
+    const QString hexPath = temporary.path() + QStringLiteral("/十六进制数据");
+    answerSaveDialog(hexPath);
+    exportHex->click();
+    CHECK(readFile(hexPath + ".hex") == "78 56 34 12 22 11 44 33 66 55\n");
+    CHECK(exportStatus->text().contains(QStringLiteral("已导出 10 字节")));
+    CHECK(window.fieldValues() == valuesBeforeExport);
+    const QString savedStatus = exportStatus->text();
+    answerSaveDialog(QString());
+    exportHex->click();
+    CHECK(exportStatus->text() == savedStatus);
+    CHECK(readFile(hexPath + ".hex") == "78 56 34 12 22 11 44 33 66 55\n");
+
+    // 修改主窗口后，旧预览导出的仍是打开时的快照。
+    sequence->setText("1");
+    const QString textPath = temporary.path() + "/snapshot";
+    answerSaveDialog(textPath, QStringLiteral("文本文件 (*.txt)"));
+    exportHex->click();
+    CHECK(readFile(textPath + ".txt") == readFile(hexPath + ".hex"));
+    CHECK(window.fieldValues().value("sequence") == "1");
+    CHECK(parseHexBytes(QString::fromLatin1(readFile(textPath + ".txt"))).bytes == nestedBytes.bytes);
+
+    const QString disappearingDirectory = temporary.path() + "/disappearing";
+    CHECK(QDir().mkdir(disappearingDirectory));
+    answerSaveDialog(disappearingDirectory + "/failed.hex", QString(), true);
+    exportHex->click();
+    CHECK(exportStatus->text().contains(QStringLiteral("导出失败")));
+    CHECK(!QFileInfo::exists(disappearingDirectory + "/failed.hex"));
+    CHECK(dialog->isVisible() && hex->toPlainText() == formatHexDump(nestedBytes.bytes));
+    CHECK(window.fieldValues().value("sequence") == "1");
     dialog->close();
     sequence->setText("1");
     button->click();
@@ -287,8 +361,17 @@ int main(int argc, char **argv)
     button->click();
     dialog = window.findChild<QDialog *>("binaryPreviewDialog");
     CHECK(dialog && dialog->findChild<QPlainTextEdit *>("binaryHexView")->toPlainText() == formatHexDump(expectedArrays));
+    const QString arrayExport = temporary.path() + "/arrays.hex";
+    answerSaveDialog(arrayExport);
+    dialog->findChild<QPushButton *>("exportHexFileButton")->click();
+    const QByteArray exportedArrays = readFile(arrayExport);
+    const QList<QByteArray> lines = exportedArrays.trimmed().split('\n');
+    CHECK(lines.size() == 3 && lines.at(0).size() == 47 && lines.at(1).size() == 47);
+    CHECK(lines.at(2).size() == 35 && exportedArrays.endsWith('\n'));
+    const BinaryResult exportedBytes = parseHexBytes(QString::fromLatin1(exportedArrays));
+    CHECK(exportedBytes.success && exportedBytes.bytes == expectedArrays);
     dialog->close();
     QTextStream(stdout) << "PASS: known hex, native packed layout, nested fields, integer limits,"
-                          " signed bitfields, floats/long double, padding, unsupported layouts and preview/copy UI\n";
+                          " signed bitfields, floats/long double, padding, unsupported layouts, preview/copy and hex file export UI\n";
     return 0;
 }
