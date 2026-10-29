@@ -1,5 +1,9 @@
 <RCC>
     <qresource prefix="/icons">
         <file alias="structhex.png">assets/structhex.png</file>
+        <file alias="chevron-down.png">assets/chevron-down.png</file>
+    </qresource>
+    <qresource prefix="/styles">
+        <file alias="structhex.qss">assets/structhex.qss</file>
     </qresource>
 </RCC>

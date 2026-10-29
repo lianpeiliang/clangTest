@@ -16,14 +16,17 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFrame>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSignalBlocker>
+#include <QStyle>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
@@ -39,6 +42,17 @@ QString byteOffset(qint64 bits)
     // 位域保留不足一个字节的 bit 偏移。
     return bits % 8 == 0 ? QString::number(bits / 8)
                         : QStringLiteral("%1 + %2 bit").arg(bits / 8).arg(bits % 8);
+}
+
+void setInvalid(QWidget *widget, bool invalid)
+{
+    if (widget->property("invalid").toBool() == invalid)
+        return;
+    widget->setProperty("invalid", invalid);
+    // Qt 动态属性变化后重新应用 QSS，错误颜色集中定义在主题文件中。
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
 }
 
 } // namespace
@@ -102,8 +116,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
                         // 无效文字仍显示在输入框中，但不覆盖 m_fieldValues 中的上次合法值。
                         m_valueErrors.insert(fieldPath, validation.error);
                     }
-                    editor->setStyleSheet(validation.valid ? QString() : QStringLiteral(
-                        "QLineEdit { border: 1px solid #c62828; background-color: #fff0f0; color: #9c1c1c; }"));
+                    setInvalid(editor, !validation.valid);
                     editor->setToolTip(fieldPath + QLatin1Char('\n')
                                       + (validation.valid ? hint : validation.error));
                     updateValueStatus();
@@ -118,6 +131,7 @@ void MainWindow::appendFields(QTreeWidgetItem *parent, const QVector<FieldInfo> 
 void MainWindow::updateValueStatus()
 {
     m_binaryButton->setEnabled(m_hasStructure && m_valueErrors.isEmpty());
+    setInvalid(m_valueStatus, !m_valueErrors.isEmpty());
     if (m_valueErrors.isEmpty()) {
         m_valueStatus->setText(QStringLiteral("值保存在内存中。整数支持十进制或 0x 前缀十六进制，布尔值使用下拉选择；字符类型按数值编码填写。"));
     } else {
@@ -153,10 +167,13 @@ void MainWindow::showBinary()
     dialog->setWindowTitle(QStringLiteral("十六进制预览：%1").arg(m_parsedStructure.name));
     dialog->resize(860, 520);
     auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(12);
     auto *summary = new QLabel(QStringLiteral(
         "%1    |    %2 字节    |    Windows x64 / MinGW，小端序\n"
         "当前值快照；每行 16 字节，左侧为十六进制偏移，数组、填充字节和未命名位域补 0。")
         .arg(m_parsedStructure.name).arg(result.bytes.size()), dialog);
+    summary->setObjectName(QStringLiteral("dialogSummary"));
     summary->setTextFormat(Qt::PlainText);
     summary->setWordWrap(true);
     layout->addWidget(summary);
@@ -182,6 +199,8 @@ void MainWindow::showBinary()
     exportHex->setToolTip(QStringLiteral("保存当前预览的十六进制文本，每行 16 字节，不含偏移地址。"));
     auto *copy = buttons->addButton(QStringLiteral("复制十六进制"), QDialogButtonBox::ActionRole);
     copy->setObjectName(QStringLiteral("copyHexButton"));
+    copy->style()->unpolish(copy);
+    copy->style()->polish(copy);
     const QByteArray bytes = result.bytes;
     // 按值捕获 bytes，复制按钮使用的是打开弹窗那一刻的快照。
     connect(copy, &QPushButton::clicked, dialog, [bytes, exportStatus] {
@@ -258,10 +277,13 @@ void MainWindow::showHexDecoder()
     dialog->setWindowTitle(QStringLiteral("解析十六进制：%1").arg(m_parsedStructure.name));
     dialog->resize(1100, 720);
     auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(12);
     auto *summary = new QLabel(QStringLiteral(
         "%1：需要完整的 %2 字节（含结构体填充）。支持连续十六进制、空格/换行/逗号分隔及 0x 前缀。\n"
         "例如：78 56 34 12 或 0x78, 0x56, 0x34, 0x12。请粘贴字节本身，不含偏移地址。")
         .arg(m_parsedStructure.name).arg(m_parsedStructure.size), dialog);
+    summary->setObjectName(QStringLiteral("dialogSummary"));
     summary->setTextFormat(Qt::PlainText);
     summary->setWordWrap(true);
     layout->addWidget(summary);
@@ -303,6 +325,8 @@ void MainWindow::showHexDecoder()
     buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
     auto *apply = buttons->addButton(QStringLiteral("填入可编辑字段"), QDialogButtonBox::ActionRole);
     apply->setObjectName(QStringLiteral("applyDecodedValuesButton"));
+    apply->style()->unpolish(apply);
+    apply->style()->polish(apply);
     apply->setEnabled(false);
     apply->setToolTip(QStringLiteral("仅填入已解析且通过校验的基础类型字段。原始数据中的填充和只读数组不会保存到字段值；二进制预览仍将这些区域补 0，并使用小端序。"));
     layout->addWidget(buttons);
@@ -476,11 +500,14 @@ void MainWindow::showHexImporter()
     dialog->setWindowTitle(QStringLiteral("导入16进制数据：%1").arg(m_parsedStructure.name));
     dialog->resize(760, 440);
     auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(12);
     auto *summary = new QLabel(QStringLiteral(
         "导入到 %1：请输入完整的 %2 字节（含填充），按当前目标的小端序读取。\n"
         "支持连续十六进制、空格/换行/逗号分隔及 0x 前缀。可直接粘贴“复制十六进制”的内容，不含偏移地址。\n"
         "导入后替换可编辑字段的值，可继续在主界面修改。只读字段和填充字节不保存，再次生成二进制时按现有规则处理。")
         .arg(m_parsedStructure.name).arg(m_parsedStructure.size), dialog);
+    summary->setObjectName(QStringLiteral("dialogSummary"));
     summary->setTextFormat(Qt::PlainText);
     summary->setWordWrap(true);
     layout->addWidget(summary);
@@ -499,6 +526,8 @@ void MainWindow::showHexImporter()
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("导入"));
     buttons->button(QDialogButtonBox::Ok)->setObjectName(QStringLiteral("importHexButton"));
+    buttons->button(QDialogButtonBox::Ok)->style()->unpolish(buttons->button(QDialogButtonBox::Ok));
+    buttons->button(QDialogButtonBox::Ok)->style()->polish(buttons->button(QDialogButtonBox::Ok));
     buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
     layout->addWidget(buttons);
     connect(input, &QPlainTextEdit::textChanged, dialog, [this, input, status] {
@@ -523,12 +552,44 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
     setWindowTitle(QStringLiteral("StructHex · 结构体数据编辑器"));
-    resize(1360, 820);
+    setObjectName(QStringLiteral("mainWindow"));
+    setAttribute(Qt::WA_StyledBackground);
+    resize(1440, 900);
 
     // QVBoxLayout 从上到下排列各行；每一行再用 QHBoxLayout 从左到右排列。
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setContentsMargins(22, 22, 22, 22);
     layout->setSpacing(12);
+
+    auto *brand = new QFrame(this);
+    brand->setObjectName(QStringLiteral("brandHeader"));
+    auto *brandRow = new QHBoxLayout(brand);
+    brandRow->setContentsMargins(18, 12, 20, 12);
+    brandRow->setSpacing(12);
+    auto *logo = new QLabel(brand);
+    logo->setPixmap(QIcon(QStringLiteral(":/icons/structhex.png")).pixmap(52, 52));
+    brandRow->addWidget(logo);
+    auto *brandText = new QVBoxLayout;
+    brandText->setSpacing(2);
+    auto *brandTitle = new QLabel(QStringLiteral("StructHex"), brand);
+    brandTitle->setObjectName(QStringLiteral("brandTitle"));
+    auto *brandSubtitle = new QLabel(QStringLiteral("结构体数据编辑器"), brand);
+    brandSubtitle->setObjectName(QStringLiteral("brandSubtitle"));
+    brandText->addWidget(brandTitle);
+    brandText->addWidget(brandSubtitle);
+    brandRow->addLayout(brandText);
+    brandRow->addStretch();
+    auto *badge = new QLabel(QStringLiteral("C / C++  ·  HEX"), brand);
+    badge->setObjectName(QStringLiteral("brandBadge"));
+    brandRow->addWidget(badge);
+    layout->addWidget(brand);
+
+    auto *definitionPanel = new QFrame(this);
+    definitionPanel->setObjectName(QStringLiteral("definitionPanel"));
+    auto *definitionLayout = new QVBoxLayout(definitionPanel);
+    definitionLayout->setContentsMargins(16, 14, 16, 14);
+    definitionLayout->setSpacing(10);
+    layout->addWidget(definitionPanel);
 
     auto *sourceRow = new QHBoxLayout;
     sourceRow->addWidget(new QLabel(QStringLiteral("结构定义文件："), this));
@@ -543,12 +604,12 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     reloadButton->setObjectName(QStringLiteral("reloadDefinitionButton"));
     sourceRow->addWidget(openButton);
     sourceRow->addWidget(reloadButton);
-    layout->addLayout(sourceRow);
+    definitionLayout->addLayout(sourceRow);
     m_sourceInfo = new QLabel(this);
     m_sourceInfo->setObjectName(QStringLiteral("definitionSourceInfo"));
     m_sourceInfo->setTextFormat(Qt::PlainText);
     m_sourceInfo->setWordWrap(true);
-    layout->addWidget(m_sourceInfo);
+    definitionLayout->addWidget(m_sourceInfo);
 
     auto *nameRow = new QHBoxLayout;
     auto *nameLabel = new QLabel(QStringLiteral("选择结构体："), this);
@@ -563,7 +624,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
     nameRow->addWidget(expandButton);
     nameRow->addWidget(collapseButton);
-    layout->addLayout(nameRow);
+    definitionLayout->addLayout(nameRow);
     auto *actionRow = new QHBoxLayout;
     m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
     m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
@@ -600,10 +661,14 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_structureName->setFont(titleFont);
     m_structureName->setTextFormat(Qt::PlainText);
     m_structureName->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(m_structureName);
+    auto *structureRow = new QHBoxLayout;
+    structureRow->addWidget(m_structureName);
+    structureRow->addStretch();
     m_summary = new QLabel(this);
+    m_summary->setObjectName(QStringLiteral("structureSummary"));
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(m_summary);
+    structureRow->addWidget(m_summary);
+    layout->addLayout(structureRow);
     m_valueStatus = new QLabel(this);
     m_valueStatus->setObjectName(QStringLiteral("fieldValueStatus"));
     m_valueStatus->setTextFormat(Qt::PlainText);

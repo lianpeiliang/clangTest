@@ -2,6 +2,7 @@
 #include "binarydecoder.h"
 #include "fieldvalue.h"
 #include "mainwindow.h"
+#include "theme.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -91,6 +92,7 @@ int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
+    applyApplicationTheme(app);
 #ifdef Q_OS_WIN
     if (QApplication::platformName() == "offscreen") {
         QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/msyh.ttc");

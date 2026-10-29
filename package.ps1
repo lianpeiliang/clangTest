@@ -97,7 +97,7 @@ try {
     Copy-Item -LiteralPath $testHeadersDir -Destination $appDir -Recurse
     foreach ($file in @(
         'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
-        'clangTest.pro', 'resources.qrc', 'README.md', 'package.ps1'
+        'clangTest.pro', 'resources.qrc', 'theme.h', 'theme.cpp', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }

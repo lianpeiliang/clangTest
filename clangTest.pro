@@ -11,8 +11,8 @@ win32:RC_ICONS = $$PWD/assets/structhex.ico
 RESOURCES += $$PWD/resources.qrc
 
 # SOURCES 中的 .cpp 会参与编译；HEADERS 列出头文件，便于 Qt Creator 展示和项目管理。
-SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
-HEADERS += headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
+SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp theme.cpp
+HEADERS += headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h theme.h
 HEADERS += TestHeader/MsgHeader.h TestHeader/SimpleMsgHeader.h TestHeader/MinimalMsgHeader.h \
            TestHeader/PacketHeader.h TestHeader/NestedPacketHeader.h TestHeader/MultiStructHeader.h
 

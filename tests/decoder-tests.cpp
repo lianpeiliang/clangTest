@@ -1,6 +1,7 @@
 #include "binarydecoder.h"
 #include "definitionjson.h"
 #include "mainwindow.h"
+#include "theme.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -55,6 +56,7 @@ int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
+    applyApplicationTheme(app);
     QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/msyh.ttc");
     QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/consola.ttf");
     app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 9));

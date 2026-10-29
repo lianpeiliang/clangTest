@@ -1,5 +1,6 @@
 #include "fieldvalue.h"
 #include "mainwindow.h"
+#include "theme.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -46,6 +47,7 @@ static QTreeWidgetItem *item(QTreeWidgetItem *parent, const QString &path)
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
+    applyApplicationTheme(app);
 #ifdef Q_OS_WIN
     if (QApplication::platformName() == "offscreen") {
         QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/msyh.ttc");
@@ -148,13 +150,20 @@ int main(int argc, char **argv)
     CHECK(window.fieldValues().value("byte") == "0xFF" && !window.hasInvalidFieldValues());
     editor("byte")->setText("0x100");
     CHECK(window.fieldValues().value("byte") == "0xFF" && window.hasInvalidFieldValues());
-    CHECK(!editor("byte")->styleSheet().isEmpty());
+    CHECK(editor("byte")->property("invalid").toBool());
     CHECK(window.findChild<QLabel *>("fieldValueStatus")->text().contains("byte"));
+    if (app.arguments().size() > 2) {
+        window.show();
+        app.processEvents();
+        CHECK(window.grab().save(app.arguments().at(2)));
+    }
     editor("gain")->setText("nan");
     editor("byte")->setText("12");
+    CHECK(!editor("byte")->property("invalid").toBool());
     CHECK(window.hasInvalidFieldValues()); // 其他字段合法时仍保留未解决的错误。
     editor("gain")->setText("1.25e-3");
     CHECK(!window.hasInvalidFieldValues());
+    CHECK(!window.findChild<QLabel *>("fieldValueStatus")->property("invalid").toBool());
     editor("wide")->setText("0xFFFFFFFFFFFFFFFF");
     editor("address.code")->setText("0x7B");
     editor("destination.code")->setText("456");

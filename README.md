@@ -4,6 +4,8 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 
 应用图标采用 Microsoft Fluent UI System Icons 的 [Code Block 彩色图标](https://github.com/microsoft/fluentui-system-icons/blob/main/assets/Code%20Block/SVG/ic_fluent_code_block_48_color.svg)，遵循 MIT 许可。图标源文件、多尺寸 Windows `.ico` 及许可保存在 `assets/`；程序内嵌图标，便携包同时附带许可文件。
 
+界面采用与图标一致的紫色主题：浅紫背景、白色内容区、紫色渐变主按钮及统一的输入框、字段树和弹窗样式。样式集中保存在 `assets/structhex.qss`，通过 `resources.qrc` 内嵌，在 `theme.cpp` 中加载；修改 QSS 后重新构建即可。无效输入使用红色边框和提示，禁用、悬停、焦点和选中状态分别定义。
+
 ## 项目文件
 
 | 文件 | 用途 |
