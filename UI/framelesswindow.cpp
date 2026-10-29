@@ -27,9 +27,10 @@ protected:
         QPushButton::paintEvent(event); // 保留 QSS 的悬停、按下和键盘焦点效果。
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+        painter.translate(width() / 2.0, height() / 2.0);
         painter.setPen(QPen(Qt::white, 1.25, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
-        const qreal x = width() / 2.0 - 5;
-        const qreal y = height() / 2.0 - 5;
+        const qreal x = -5;
+        const qreal y = -5;
         if (m_action == Minimize) {
             painter.drawLine(QPointF(x, y + 5), QPointF(x + 10, y + 5));
         } else if (m_action == Close) {
@@ -94,7 +95,7 @@ QFrame *FramelessWindow::createTitleBar()
     close->setToolTip(QStringLiteral("关闭"));
     close->setAccessibleName(QStringLiteral("关闭"));
     for (QPushButton *button : {static_cast<QPushButton *>(minimize), m_maximizeButton, static_cast<QPushButton *>(close)}) {
-        button->setFixedSize(36, 30);
+        button->setFixedSize(28, 24);
         brandRow->addWidget(button);
     }
     connect(minimize, &QPushButton::clicked, this, &QWidget::showMinimized);
