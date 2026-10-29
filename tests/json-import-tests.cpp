@@ -1,6 +1,6 @@
 #include "definitionjson.h"
 #include "binaryencoder.h"
-#include "mainwindow.h"
+#include "UI/mainwindow.h"
 
 #include <QApplication>
 #include <QComboBox>

@@ -1,5 +1,5 @@
 #include "headerparser.h"
-#include "mainwindow.h"
+#include "UI/mainwindow.h"
 #include "definitionjson.h"
 
 #include <QApplication>

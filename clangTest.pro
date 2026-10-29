@@ -11,8 +11,13 @@ win32:RC_ICONS = $$PWD/assets/structhex.ico
 RESOURCES += $$PWD/resources.qrc
 
 # SOURCES 中的 .cpp 会参与编译；HEADERS 列出头文件，便于 Qt Creator 展示和项目管理。
-SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp theme.cpp
-HEADERS += headerparser.h mainwindow.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h theme.h
+INCLUDEPATH += $$PWD
+SOURCES += main.cpp headerparser.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
+HEADERS += headerparser.h fieldvalue.h binaryencoder.h binarydecoder.h definitionjson.h
+
+# 界面代码统一放在 UI/，数据解析与编解码模块保留在项目根目录。
+SOURCES += UI/mainwindow.cpp UI/framelesswindow.cpp UI/fieldeditor.cpp UI/hexdialogs.cpp UI/theme.cpp
+HEADERS += UI/mainwindow.h UI/framelesswindow.h UI/fieldeditor.h UI/hexdialogs.h UI/theme.h
 HEADERS += TestHeader/MsgHeader.h TestHeader/SimpleMsgHeader.h TestHeader/MinimalMsgHeader.h \
            TestHeader/PacketHeader.h TestHeader/NestedPacketHeader.h TestHeader/MultiStructHeader.h
 
@@ -28,8 +33,8 @@ LIBS += "$$LIBCLANG_ROOT/lib/libclang.dll.a"
 DEFINES += LIBCLANG_ROOT=\\\"$$LIBCLANG_ROOT\\\"
 DEFINES += MSG_HEADER_PATH=\\\"$$PWD/TestHeader/MsgHeader.h\\\"
 
-SOURCES += framelesswindow.cpp hexdialogs.cpp
-HEADERS += framelesswindow.h hexdialogs.h
+SOURCES += structuresession.cpp
+HEADERS += structuresession.h
 
-SOURCES += fieldeditor.cpp
-HEADERS += fieldeditor.h
+SOURCES += UI/definitionpanel.cpp
+HEADERS += UI/definitionpanel.h

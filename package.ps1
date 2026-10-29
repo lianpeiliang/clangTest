@@ -96,12 +96,13 @@ try {
     New-Item -ItemType Directory -Path $sourceDir, $licenseDir -Force | Out-Null
     Copy-Item -LiteralPath $testHeadersDir -Destination $appDir -Recurse
     foreach ($file in @(
-        'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
-        'clangTest.pro', 'resources.qrc', 'theme.h', 'theme.cpp', 'framelesswindow.h', 'framelesswindow.cpp', 'hexdialogs.h', 'hexdialogs.cpp', 'fieldeditor.h', 'fieldeditor.cpp', 'README.md', 'package.ps1'
+        'main.cpp', 'structuresession.h', 'structuresession.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
+        'clangTest.pro', 'resources.qrc', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }
     Copy-Item -LiteralPath $testHeadersDir -Destination $sourceDir -Recurse
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'UI') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $projectRoot 'assets') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $projectRoot 'tests') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $ClangRoot 'share/licenses') -Destination (Join-Path $licenseDir 'msys2') -Recurse

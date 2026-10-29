@@ -1,5 +1,5 @@
-#include "fieldeditor.h"
-#include "theme.h"
+#include "UI/fieldeditor.h"
+#include "UI/theme.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QLineEdit>

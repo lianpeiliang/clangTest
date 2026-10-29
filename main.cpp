@@ -2,8 +2,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QIcon>
-#include "mainwindow.h"
-#include "theme.h"
+#include "UI/mainwindow.h"
+#include "UI/theme.h"
 
 // 程序入口。阅读顺序：创建应用 → 确定头文件路径 → 创建窗口 → 进入事件循环。
 int main(int argc, char *argv[])

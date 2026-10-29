@@ -4,9 +4,11 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 
 应用图标采用 Microsoft Fluent UI System Icons 的 [Code Block 彩色图标](https://github.com/microsoft/fluentui-system-icons/blob/main/assets/Code%20Block/SVG/ic_fluent_code_block_48_color.svg)，遵循 MIT 许可。图标源文件、多尺寸 Windows `.ico` 及许可保存在 `assets/`；程序内嵌图标，便携包同时附带许可文件。
 
-界面采用与图标一致的紫色主题：浅紫背景、白色内容区、紫色渐变主按钮及统一的输入框、字段树和弹窗样式。样式集中保存在 `assets/structhex.qss`，通过 `resources.qrc` 内嵌，在 `theme.cpp` 中加载；修改 QSS 后重新构建即可。无效输入使用红色边框和提示，禁用、悬停、焦点和选中状态分别定义。
+界面采用与图标一致的紫色主题：浅紫背景、白色内容区、紫色渐变主按钮及统一的输入框、字段树和弹窗样式。样式集中保存在 `assets/structhex.qss`，通过 `resources.qrc` 内嵌，在 `UI/theme.cpp` 中加载；修改 QSS 后重新构建即可。无效输入使用红色边框和提示，禁用、悬停、焦点和选中状态分别定义。
 
 主窗口使用紫色自定义标题栏，右侧提供最小化、最大化/还原和关闭按钮。Windows 下可拖动标题区域、双击最大化/还原、拖动边缘和四角缩放，并沿用系统的贴边吸附；最大化使用当前显示器的工作区，保留任务栏。窗口最小尺寸为 1040 × 640。窗口操作检查使用 `tests/window-tests.pro`，需在 Windows 桌面环境运行。
+
+界面相关的 C++ 源码与头文件统一放在 `UI/` 目录；`main.cpp` 是程序入口，解析、校验、编解码和 JSON 模块保留在根目录，样式及图标资源放在 `assets/`。
 
 ## 项目文件
 
@@ -14,11 +16,13 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 | --- | --- |
 | `clangTest.pro` | Qt 项目配置及 libclang 链接配置 |
 | `main.cpp` | 创建 QApplication，启动窗口 |
-| `mainwindow.h / .cpp` | 协调结构定义加载、字段编辑区、操作按钮及解析诊断 |
-| `fieldeditor.h / .cpp` | 独立字段编辑区，管理树形控件、输入值、校验和填回 |
-| `framelesswindow.h / .cpp` | 自定义标题栏、窗口按钮及 Windows 原生拖动、缩放、工作区处理 |
-| `hexdialogs.h / .cpp` | 十六进制预览、复制/导出、解析与粘贴导入弹窗及输入记忆 |
+| `UI/mainwindow.h / .cpp` | 协调结构定义加载、字段编辑区、操作按钮及解析诊断 |
+| `UI/fieldeditor.h / .cpp` | 独立字段编辑区，管理树形控件、输入值、校验和填回 |
+| `UI/definitionpanel.h / .cpp` | 文件路径、候选选择和来源提示，通过信号请求操作 |
+| `UI/framelesswindow.h / .cpp` | 自定义标题栏、窗口按钮及 Windows 原生拖动、缩放、工作区处理 |
+| `UI/hexdialogs.h / .cpp` | 十六进制预览、复制/导出、解析与粘贴导入弹窗及输入记忆 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
+| `structuresession.h / .cpp` | 非 UI 的定义会话，管理文件加载、候选、当前选择和诊断 |
 | `fieldvalue.h / .cpp` | 根据字段类型、位宽校验输入，保留完整的 64 位整数文本 |
 | `binaryencoder.h / .cpp` | 按目标布局编码当前字段值，并格式化十六进制预览 |
 | `binarydecoder.h / .cpp` | 校验十六进制输入，按已导入布局和字节序解析字段 |
@@ -43,13 +47,17 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 
 ## 建议阅读顺序
 
-界面按职责分为四块：`MainWindow` 组织主界面，协调结构定义加载与操作按钮；`FieldEditor` 独立持有字段树、输入值和校验状态，通过信号通知主窗口更新按钮；基类 `FramelessWindow` 只处理标题栏与系统窗口行为；`HexDialogs` 持有弹窗状态，通过回调请求填回字段或导入文本。编码、解码及定义 JSON 继续由各自模块完成。弹窗以主窗口为 Qt 父对象，切换结构定义时由主窗口通知关闭编辑弹窗。`tests/fieldeditor-tests.pro` 检查编辑区脱离主窗口后的独立使用、校验通知、填回、原值恢复和清空。
+界面按职责划分：`MainWindow` 组织主界面，协调定义会话与操作按钮；`FieldEditor` 独立持有字段树、输入值和校验状态，通过信号通知主窗口更新按钮；基类 `FramelessWindow` 只处理标题栏与系统窗口行为；`HexDialogs` 持有弹窗状态，通过回调请求填回字段或导入文本。编码、解码及定义 JSON 继续由各自模块完成。弹窗以主窗口为 Qt 父对象，切换结构定义时由主窗口通知关闭编辑弹窗。`tests/fieldeditor-tests.pro` 检查编辑区脱离主窗口后的独立使用、校验通知、填回、原值恢复和清空。
+
+`StructureSession` 是不依赖 UI 的普通 C++ 类，统一管理头文件/JSON 来源、候选、当前选择、诊断，以及重载或切回头文件时的名称恢复。主窗口直接读取会话，不重复保存当前结构体和加载状态；字段输入仍由编辑区管理。`tests/session-tests.pro` 仅依赖 Qt Core，覆盖缓存切换、来源标识、选择恢复、布局失败隔离和加载失败后的状态清空。
+
+`DefinitionPanel` 独立持有路径输入框、结构体选择框和来源提示，处理打开文件、回车、重载、展开/折叠等界面操作；它不解析定义或持有会话，通过信号把请求交给主窗口协调。刷新候选时屏蔽选择信号，避免重复加载或填回。`tests/definitionpanel-tests.pro` 检查面板独立使用时的操作信号和静默刷新。
 
 初次阅读可以先打开 `TestHeader/MinimalMsgHeader.h`，对照这个只有两个字段的样例，再按下面的顺序看源码：
 
 1. `main.cpp`：程序从这里开始，创建应用和窗口，进入 Qt 事件循环。
 2. `headerparser.h`：先认识 `FieldInfo`、`StructInfo` 和解析结果，各功能都围绕这些数据工作。
-3. `mainwindow.cpp`：先看构造函数如何创建控件、连接信号，再看 `reloadDefinition()` → `showSelectedStructure()` → `appendFields()`，理解文件到界面的流程。
+3. `UI/mainwindow.cpp`：先看构造函数如何组织界面和连接信号，再看 `reloadDefinition()` → `showSelectedStructure()`；随后阅读 `UI/fieldeditor.cpp` 的 `setStructure()` 和 `appendFields()`，理解定义如何变成可编辑的字段树。
 4. `headerparser.cpp`：从 `parseHeaderStructures()` 看解析入口，再看 `discoverRecords()`、`parseRecord()`、`visitField()`，理解结构体发现、布局读取和嵌套递归。
 5. `fieldvalue.cpp`：看 `validateFieldValue()`，理解字符串格式检查、数值转换及范围校验。
 6. `binaryencoder.cpp` / `binarydecoder.cpp`：看字段值如何变成字节，以及如何按偏移、位宽和字节序读回来。

@@ -3,11 +3,17 @@ include(../clangTest.pro)
 TARGET = nested-tests
 CONFIG += console
 INCLUDEPATH += $$PWD/..
-SOURCES = $$PWD/nested-tests.cpp $$PWD/../headerparser.cpp $$PWD/../mainwindow.cpp $$PWD/../fieldvalue.cpp $$PWD/../binaryencoder.cpp $$PWD/../binarydecoder.cpp $$PWD/../definitionjson.cpp $$PWD/../theme.cpp
-HEADERS = $$PWD/../headerparser.h $$PWD/../mainwindow.h $$PWD/../fieldvalue.h $$PWD/../binaryencoder.h $$PWD/../binarydecoder.h $$PWD/../definitionjson.h $$PWD/../theme.h
+SOURCES = $$PWD/nested-tests.cpp $$PWD/../headerparser.cpp $$PWD/../UI/mainwindow.cpp $$PWD/../fieldvalue.cpp $$PWD/../binaryencoder.cpp $$PWD/../binarydecoder.cpp $$PWD/../definitionjson.cpp $$PWD/../UI/theme.cpp
+HEADERS = $$PWD/../headerparser.h $$PWD/../UI/mainwindow.h $$PWD/../fieldvalue.h $$PWD/../binaryencoder.h $$PWD/../binarydecoder.h $$PWD/../definitionjson.h $$PWD/../UI/theme.h
 
-SOURCES += $$PWD/../framelesswindow.cpp $$PWD/../hexdialogs.cpp
-HEADERS += $$PWD/../framelesswindow.h $$PWD/../hexdialogs.h
+SOURCES += $$PWD/../UI/framelesswindow.cpp $$PWD/../UI/hexdialogs.cpp
+HEADERS += $$PWD/../UI/framelesswindow.h $$PWD/../UI/hexdialogs.h
 
-SOURCES += $$PWD/../fieldeditor.cpp
-HEADERS += $$PWD/../fieldeditor.h
+SOURCES += $$PWD/../UI/fieldeditor.cpp
+HEADERS += $$PWD/../UI/fieldeditor.h
+
+SOURCES += $$PWD/../structuresession.cpp
+HEADERS += $$PWD/../structuresession.h
+
+SOURCES += $$PWD/../UI/definitionpanel.cpp
+HEADERS += $$PWD/../UI/definitionpanel.h

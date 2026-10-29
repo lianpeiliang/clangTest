@@ -1,24 +1,21 @@
 #include "mainwindow.h"
 #include "hexdialogs.h"
 #include "fieldeditor.h"
+#include "definitionpanel.h"
 #include "headerparser.h"
 #include "binaryencoder.h"
 #include "binarydecoder.h"
 #include "definitionjson.h"
 
-#include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 // 界面层的数据流：加载文件 → 得到候选结构体 → 选择一项 → 显示字段树 → 编辑/预览/导出。
@@ -27,7 +24,7 @@
 // 编辑区统一维护输入错误，主窗口只决定相关操作按钮是否可用。
 void MainWindow::updateValueStatus()
 {
-    m_binaryButton->setEnabled(m_hasStructure && !m_fieldEditor->hasInvalidValues());
+    m_binaryButton->setEnabled(m_session.hasStructure() && !m_fieldEditor->hasInvalidValues());
 }
 
 const QHash<QString, QString> &MainWindow::fieldValues() const
@@ -43,30 +40,30 @@ bool MainWindow::hasInvalidFieldValues() const
 // 先调用编码模块得到字节，再把字节排版到弹窗；此函数不直接计算字段布局。
 void MainWindow::showBinary()
 {
-    if (!m_hasStructure || hasInvalidFieldValues())
+    if (!m_session.hasStructure() || hasInvalidFieldValues())
         return;
-    const BinaryResult result = encodeStructure(m_parsedStructure, fieldValues());
+    const BinaryResult result = encodeStructure(m_session.structure(), fieldValues());
     if (!result.success) {
         m_status->setText(QStringLiteral("无法生成二进制，请查看下方原因。"));
         m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
         m_diagnostics->show();
         return;
     }
-    m_diagnostics->setPlainText(m_parseDiagnostics.join(QLatin1Char('\n')));
-    m_diagnostics->setVisible(!m_parseDiagnostics.isEmpty());
+    m_diagnostics->setPlainText(m_session.diagnostics().join(QLatin1Char('\n')));
+    m_diagnostics->setVisible(!m_session.diagnostics().isEmpty());
     m_status->setText(QStringLiteral("已生成 %1 字节的二进制预览。修改值后请重新点击“查看二进制”。")
                           .arg(result.bytes.size()));
 
-    m_hexDialogs->showPreview(m_parsedStructure, result.bytes, m_loadedPath);
+    m_hexDialogs->showPreview(m_session.structure(), result.bytes, m_session.loadedPath());
 }
 
-// 导出只传结构定义 m_parsedStructure，字段输入值 fieldValues() 不参与保存。
+// 导出只传结构定义 m_session.structure()，字段输入值 fieldValues() 不参与保存。
 void MainWindow::exportDefinitionJson()
 {
-    if (!m_hasStructure)
+    if (!m_session.hasStructure())
         return;
     const QDir sourceDir = QFileInfo(m_valuesSource.section(QLatin1Char('\n'), 0, 0)).dir();
-    const QString suggested = sourceDir.filePath(m_parsedStructure.name + QStringLiteral(".json"));
+    const QString suggested = sourceDir.filePath(m_session.structure().name + QStringLiteral(".json"));
     QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出结构定义 JSON"), suggested,
                                                QStringLiteral("JSON 文件 (*.json);;所有文件 (*)"));
     if (path.isEmpty())
@@ -74,7 +71,7 @@ void MainWindow::exportDefinitionJson()
     if (QFileInfo(path).suffix().isEmpty())
         path += QStringLiteral(".json");
     QString error;
-    if (!saveStructureDefinitionJson(m_parsedStructure, path, &error)) {
+    if (!saveStructureDefinitionJson(m_session.structure(), path, &error)) {
         m_status->setText(QStringLiteral("导出失败：%1").arg(error));
         return;
     }
@@ -84,8 +81,8 @@ void MainWindow::exportDefinitionJson()
 // 解码分成两步：先预览解析结果，再由用户点击“填入可编辑字段”更新主窗口。
 void MainWindow::showHexDecoder()
 {
-    if (m_hasStructure)
-        m_hexDialogs->showDecoder(m_parsedStructure, [this](const QHash<QString, QString> &values) {
+    if (m_session.hasStructure())
+        m_hexDialogs->showDecoder(m_session.structure(), [this](const QHash<QString, QString> &values) {
             m_fieldEditor->applyValues(values);
         });
 }
@@ -93,7 +90,7 @@ void MainWindow::showHexDecoder()
 bool MainWindow::importHexText(const QString &text, QString &error)
 {
     error.clear();
-    if (!m_hasStructure) {
+    if (!m_session.hasStructure()) {
         error = QStringLiteral("请先加载结构体定义。");
         return false;
     }
@@ -102,7 +99,7 @@ bool MainWindow::importHexText(const QString &text, QString &error)
         error = hex.diagnostics.join(QLatin1Char('\n'));
         return false;
     }
-    const DecodeResult result = decodeStructure(m_parsedStructure, hex.bytes);
+    const DecodeResult result = decodeStructure(m_session.structure(), hex.bytes);
     if (!result.success) {
         error = result.diagnostics.join(QLatin1Char('\n'));
         return false;
@@ -132,10 +129,10 @@ bool MainWindow::importHexText(const QString &text, QString &error)
 
 void MainWindow::importHexFile()
 {
-    if (!m_hasStructure)
+    if (!m_session.hasStructure())
         return;
     const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("从文件导入16进制数据"),
-        QFileInfo(m_loadedPath).absolutePath(),
+        QFileInfo(m_session.loadedPath()).absolutePath(),
         QStringLiteral("十六进制文本 (*.hex *.txt);;所有文件 (*)"));
     if (path.isEmpty())
         return;
@@ -170,8 +167,8 @@ void MainWindow::importHexFile()
 
 void MainWindow::showHexImporter()
 {
-    if (m_hasStructure)
-        m_hexDialogs->showImporter(m_parsedStructure, [this](const QString &text, QString &error) {
+    if (m_session.hasStructure())
+        m_hexDialogs->showImporter(m_session.structure(), [this](const QString &text, QString &error) {
             return importHexText(text, error);
         });
 }
@@ -194,7 +191,13 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
 
     layout->addWidget(createTitleBar());
 
-    layout->addWidget(createDefinitionPanel(filePath));
+    m_definitionPanel = new DefinitionPanel(filePath, this);
+    layout->addWidget(m_definitionPanel);
+    connect(m_definitionPanel, &DefinitionPanel::loadRequested, this, &MainWindow::reloadDefinition);
+    connect(m_definitionPanel, &DefinitionPanel::structureSelected, this, [this](int index) {
+        m_session.selectStructure(index);
+        showSelectedStructure();
+    });
     layout->addWidget(createActionPanel());
 
     m_structureName = new QLabel(this);
@@ -227,92 +230,49 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_diagnostics->setMaximumHeight(130);
     layout->addWidget(m_diagnostics);
 
-    reloadDefinition();
+    connect(m_definitionPanel, &DefinitionPanel::expandRequested, m_fieldEditor, &FieldEditor::expandAll);
+    connect(m_definitionPanel, &DefinitionPanel::collapseRequested, m_fieldEditor, &FieldEditor::collapseAll);
+    reloadDefinition(filePath);
 }
 
 // 读取文件是两个入口的共同起点：头文件走 libclang，JSON 直接恢复相同的数据结构。
-void MainWindow::reloadDefinition()
+void MainWindow::reloadDefinition(const QString &filePath)
 {
-    const QString path = QDir::fromNativeSeparators(m_filePath->text().trimmed());
-    m_loadedPath = QFileInfo(path).absoluteFilePath();
-    m_jsonMode = QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0;
-    // 清空/添加下拉选项也会触发选择变化；填充列表期间暂时屏蔽信号，避免显示半成品。
-    // blocker 离开函数时自动恢复原信号状态，这种按作用域管理资源的方式称为 RAII。
-    const QSignalBlocker blocker(m_structName);
-    m_structName->clear();
-    m_structures.clear();
-    m_fileDiagnostics.clear();
-    if (m_jsonMode) {
-        const ParseResult result = loadStructureDefinitionJson(path);
-        m_fileDiagnostics = result.diagnostics;
-        if (result.success) {
-            m_structures.append(result);
-            m_structName->addItem(result.structure.name);
-        }
-    } else {
-        const HeaderParseResult result = parseHeaderStructures(path);
-        m_fileDiagnostics = result.diagnostics;
-        m_structures = result.structures;
-        for (const ParseResult &structure : m_structures)
-            m_structName->addItem(structure.structure.name);
-        // 同一头文件重载或从 JSON 切回时，尽量保持原选择；新文件默认选择第一项。
-        const int previous = m_headerPath == m_loadedPath
-            ? m_structName->findText(m_headerStructName) : -1;
-        if (previous >= 0)
-            m_structName->setCurrentIndex(previous);
-    }
-    m_structName->setEnabled(!m_jsonMode && m_structures.size() > 1);
-    m_structName->setToolTip(m_jsonMode ? QStringLiteral("结构体名称来自 JSON 文件。")
-        : QStringLiteral("自动发现主头文件中的结构体；选择后立即显示字段，无需输入名称。"));
+    m_session.load(filePath);
+    m_definitionPanel->setDefinitions(m_session.structureNames(), m_session.selectedIndex(), m_session.isJson());
     showSelectedStructure();
 }
 
-// 将当前候选应用到界面：下拉框下标与 m_structures 中的下标一一对应。
+// 显示会话的当前结果；候选切换由 DefinitionPanel 信号的连接负责。
 void MainWindow::showSelectedStructure()
 {
     m_hexDialogs->closeEditors();
-    const int index = m_structName->currentIndex();
-    ParseResult result;
-    if (index >= 0 && index < m_structures.size())
-        result = m_structures.at(index);
-    result.diagnostics = m_fileDiagnostics + (m_jsonMode ? QStringList() : result.diagnostics);
-    const QString structName = m_structName->currentText();
-    if (!m_jsonMode && index >= 0) {
-        m_headerPath = m_loadedPath;
-        m_headerStructName = structName;
-    }
-    m_sourceInfo->setText((m_jsonMode ? QStringLiteral("来源：结构定义 JSON")
-                                    : QStringLiteral("来源：头文件解析    |    发现 %1 个结构体").arg(m_structures.size()))
-                         + (result.success ? QStringLiteral("    |    目标：Windows x64 / MinGW，小端序")
-                                           : QStringLiteral("    |    加载失败")));
+    const bool loaded = m_session.hasStructure();
+    const QStringList diagnostics = m_session.diagnostics();
+    m_definitionPanel->setSourceState(m_session.isJson(), loaded);
 
     // 清空旧结果，避免解析失败后还显示上一个文件的字段。
-    const QString source = m_loadedPath + QLatin1Char('\n') + structName;
+    const QString source = m_session.sourceKey();
     // 只有同一文件、同一结构体才复用旧输入；具体字段是否仍合法由 FieldEditor 检查。
     const QHash<QString, QString> previousValues = source == m_valuesSource
         ? fieldValues() : QHash<QString, QString>();
-    m_hasStructure = false;
     m_fieldEditor->clear();
     m_valuesSource.clear();
-    m_parsedStructure = StructInfo();
-    m_parseDiagnostics = result.diagnostics;
     m_binaryButton->setEnabled(false);
     m_decodeButton->setEnabled(false);
     m_importHexButton->setEnabled(false);
     m_importHexFileButton->setEnabled(false);
     m_exportDefinitionButton->setEnabled(false);
-    m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
-    m_diagnostics->setVisible(!result.diagnostics.isEmpty());
-    if (!result.success) {
+    m_diagnostics->setPlainText(diagnostics.join(QLatin1Char('\n')));
+    m_diagnostics->setVisible(!diagnostics.isEmpty());
+    if (!loaded) {
         m_structureName->setText(QStringLiteral("加载失败"));
         m_summary->setText(QStringLiteral("尚无可显示的结构体信息"));
         m_status->setText(QStringLiteral("请检查结构定义文件和下方诊断信息，修正后点击“重新加载”；也可选择其他结构体。"));
         return;
     }
 
-    const StructInfo &structure = result.structure;
-    m_parsedStructure = structure;
-    m_hasStructure = true;
+    const StructInfo &structure = m_session.structure();
     m_decodeButton->setEnabled(true);
     m_importHexButton->setEnabled(true);
     m_importHexFileButton->setEnabled(true);
@@ -324,70 +284,9 @@ void MainWindow::showSelectedStructure()
                            .arg(structure.fields.size()).arg(structure.size).arg(structure.alignment));
     m_fieldEditor->setStructure(structure, previousValues);
     updateValueStatus();
-    m_status->setText(result.diagnostics.isEmpty()
+    m_status->setText(diagnostics.isEmpty()
         ? QStringLiteral("加载成功。点击箭头展开或折叠嵌套字段；修改并保存结构定义文件后，点击“重新加载”更新。")
         : QStringLiteral("加载成功，下方有诊断提示。"));
-}
-
-QWidget *MainWindow::createDefinitionPanel(const QString &filePath)
-{
-    auto *definitionPanel = new QFrame(this);
-    definitionPanel->setObjectName(QStringLiteral("definitionPanel"));
-    auto *definitionLayout = new QVBoxLayout(definitionPanel);
-    definitionLayout->setContentsMargins(16, 14, 16, 14);
-    definitionLayout->setSpacing(10);
-
-    auto *sourceRow = new QHBoxLayout;
-    sourceRow->addWidget(new QLabel(QStringLiteral("结构定义文件："), this));
-    m_filePath = new QLineEdit(QDir::toNativeSeparators(filePath), this);
-    // objectName 是程序内部标识，测试和 findChild() 用它查找控件，不是界面显示文字。
-    m_filePath->setObjectName(QStringLiteral("headerFilePath"));
-    m_filePath->setPlaceholderText(QStringLiteral("输入头文件或结构定义 JSON 路径，按回车加载"));
-    sourceRow->addWidget(m_filePath, 1);
-    auto *openButton = new QPushButton(QStringLiteral("打开结构定义…"), this);
-    openButton->setObjectName(QStringLiteral("openDefinitionButton"));
-    auto *reloadButton = new QPushButton(QStringLiteral("重新加载"), this);
-    reloadButton->setObjectName(QStringLiteral("reloadDefinitionButton"));
-    sourceRow->addWidget(openButton);
-    sourceRow->addWidget(reloadButton);
-    definitionLayout->addLayout(sourceRow);
-    m_sourceInfo = new QLabel(this);
-    m_sourceInfo->setObjectName(QStringLiteral("definitionSourceInfo"));
-    m_sourceInfo->setTextFormat(Qt::PlainText);
-    m_sourceInfo->setWordWrap(true);
-    definitionLayout->addWidget(m_sourceInfo);
-
-    auto *nameRow = new QHBoxLayout;
-    auto *nameLabel = new QLabel(QStringLiteral("选择结构体："), this);
-    nameRow->addWidget(nameLabel);
-    m_structName = new QComboBox(this);
-    m_structName->setObjectName(QStringLiteral("structSelector"));
-    m_structName->setMinimumContentsLength(24);
-    m_structName->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    nameLabel->setBuddy(m_structName);
-    nameRow->addWidget(m_structName, 1);
-    auto *expandButton = new QPushButton(QStringLiteral("全部展开"), this);
-    auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
-    nameRow->addWidget(expandButton);
-    nameRow->addWidget(collapseButton);
-    definitionLayout->addLayout(nameRow);
-    // 按钮只触发“重新读取文件并刷新界面”，不参与 libclang 的 AST 遍历。
-    connect(reloadButton, &QPushButton::clicked, this, [this] { reloadDefinition(); });
-    connect(m_filePath, &QLineEdit::returnPressed, this, [this] { reloadDefinition(); });
-    connect(m_structName, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this] { showSelectedStructure(); });
-    connect(expandButton, &QPushButton::clicked, this, [this] { m_fieldEditor->expandAll(); });
-    connect(collapseButton, &QPushButton::clicked, this, [this] { m_fieldEditor->collapseAll(); });
-    connect(openButton, &QPushButton::clicked, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(
-            this, QStringLiteral("打开结构定义"), m_filePath->text(),
-            QStringLiteral("结构定义 (*.h *.hpp *.hh *.hxx *.json);;C++ 头文件 (*.h *.hpp *.hh *.hxx);;结构定义 JSON (*.json);;所有文件 (*)"));
-        if (!path.isEmpty()) {
-            m_filePath->setText(QDir::toNativeSeparators(path));
-            reloadDefinition();
-        }
-    });
-    return definitionPanel;
 }
 
 QWidget *MainWindow::createActionPanel()

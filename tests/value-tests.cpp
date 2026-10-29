@@ -1,6 +1,6 @@
 #include "fieldvalue.h"
-#include "mainwindow.h"
-#include "theme.h"
+#include "UI/mainwindow.h"
+#include "UI/theme.h"
 
 #include <QApplication>
 #include <QComboBox>

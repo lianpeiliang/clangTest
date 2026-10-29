@@ -1,5 +1,5 @@
-#include "mainwindow.h"
-#include "theme.h"
+#include "UI/mainwindow.h"
+#include "UI/theme.h"
 #include <QApplication>
 #include <QFrame>
 #include <QPushButton>
