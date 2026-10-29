@@ -11,9 +11,9 @@ $compilerBin = Join-Path $QtRoot 'Tools/mingw730_64/bin'
 $clangBin = Join-Path $ClangRoot 'bin'
 $buildDir = Join-Path $projectRoot 'build/package-release'
 $stageRoot = Join-Path $projectRoot ('build/package-staging/' + [guid]::NewGuid().ToString('N'))
-$appDir = Join-Path $stageRoot 'clangTest-windows-x64'
+$appDir = Join-Path $stageRoot 'StructHex-windows-x64'
 $distDir = Join-Path $projectRoot 'dist'
-$zipPath = Join-Path $distDir 'clangTest-windows-x64.zip'
+$zipPath = Join-Path $distDir 'StructHex-windows-x64.zip'
 $objdump = Join-Path $clangBin 'objdump.exe'
 
 function Invoke-Checked {
@@ -37,11 +37,11 @@ try {
         Invoke-Checked (Join-Path $compilerBin 'mingw32-make.exe') @('-j2')
     } finally { Pop-Location }
 
-    Copy-Item -LiteralPath (Join-Path $buildDir 'clangTest.exe') -Destination $appDir
+    Copy-Item -LiteralPath (Join-Path $buildDir 'StructHex.exe') -Destination $appDir
     Write-Host 'Deploying Qt...'
     # DLL 运行库由后续扫描统一从 MSYS2 复制，避免混入旧版 libstdc++。
     Invoke-Checked (Join-Path $qtBin 'windeployqt.exe') @(
-        '--release', '--no-translations', '--no-compiler-runtime', (Join-Path $appDir 'clangTest.exe')
+        '--release', '--no-translations', '--no-compiler-runtime', (Join-Path $appDir 'StructHex.exe')
     )
     Set-Content -LiteralPath (Join-Path $appDir 'qt.conf') -Encoding ascii -Value "[Paths]`nPrefix=.`nPlugins=."
 
@@ -97,20 +97,22 @@ try {
     Copy-Item -LiteralPath $testHeadersDir -Destination $appDir -Recurse
     foreach ($file in @(
         'main.cpp', 'mainwindow.h', 'mainwindow.cpp', 'headerparser.h', 'headerparser.cpp', 'fieldvalue.h', 'fieldvalue.cpp', 'binaryencoder.h', 'binaryencoder.cpp', 'binarydecoder.h', 'binarydecoder.cpp', 'definitionjson.h', 'definitionjson.cpp',
-        'clangTest.pro', 'README.md', 'package.ps1'
+        'clangTest.pro', 'resources.qrc', 'README.md', 'package.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $sourceDir
     }
     Copy-Item -LiteralPath $testHeadersDir -Destination $sourceDir -Recurse
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'assets') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $projectRoot 'tests') -Destination $sourceDir -Recurse
     Copy-Item -LiteralPath (Join-Path $ClangRoot 'share/licenses') -Destination (Join-Path $licenseDir 'msys2') -Recurse
     Copy-Item -LiteralPath (Join-Path $QtRoot 'Licenses') -Destination (Join-Path $licenseDir 'qt') -Recurse
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'assets/LICENSE-FluentUI.txt') -Destination $licenseDir
 
     $instructions = @'
-clangTest Windows x64 便携版
+StructHex · 结构体数据编辑器 Windows x64 便携版
 
 使用方法
-1. 完整解压此文件夹，然后双击 clangTest.exe。
+1. 完整解压此文件夹，然后双击 StructHex.exe。
 2. 程序默认读取 TestHeader/MsgHeader.h，显示 21 个字段、83 字节。
 3. 点击“打开结构定义…”选择头文件或本程序导出的结构定义 JSON，界面显示当前来源和目标平台。
 4. 头文件中的结构体自动识别：只有一个时直接加载；有多个时在“选择结构体”下拉框切换。修改并保存文件后，点击“重新加载”。JSON 模式下名称由文件读取。
@@ -139,7 +141,7 @@ licenses/ 第三方组件随安装包提供的许可文件
 Qt 源代码：https://download.qt.io/archive/qt/5.12/5.12.8/
 MSYS2 软件包源代码：https://github.com/msys2/MINGW-packages
 
-GitHub 上传：将 clangTest-windows-x64.zip 作为 Release 附件上传。
+GitHub 上传：将 StructHex-windows-x64.zip 作为 Release 附件上传。
 '@
     Set-Content -LiteralPath (Join-Path $appDir '使用说明.txt') -Value $instructions -Encoding utf8
     Write-Host 'Compressing portable package...'

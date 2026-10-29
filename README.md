@@ -1,6 +1,8 @@
-# clangTest
+# StructHex · 结构体数据编辑器
 
-一个使用 qmake（`.pro`）构建的 Qt Widgets 示例，支持通过 libclang 自动发现 C++ 头文件中的结构体，或直接加载本程序的结构定义 JSON；统一显示成员树和内存布局，并支持基础类型字段赋值。启动时默认打开 `TestHeader/MsgHeader.h`，无需输入结构体名称。
+StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据编辑工具，支持通过 libclang 自动发现 C++ 头文件中的结构体，或直接加载本程序的结构定义 JSON；统一显示成员树和内存布局，支持基础类型字段赋值，以及十六进制数据的预览、复制和文件导入/导出。启动时默认打开 `TestHeader/MsgHeader.h`，无需输入结构体名称。
+
+应用图标采用 Microsoft Fluent UI System Icons 的 [Code Block 彩色图标](https://github.com/microsoft/fluentui-system-icons/blob/main/assets/Code%20Block/SVG/ic_fluent_code_block_48_color.svg)，遵循 MIT 许可。图标源文件、多尺寸 Windows `.ico` 及许可保存在 `assets/`；程序内嵌图标，便携包同时附带许可文件。
 
 ## 项目文件
 
@@ -211,7 +213,7 @@ New-Item -ItemType Directory -Path build -Force | Out-Null
 Set-Location build
 & "$qtBin/qmake.exe" ../clangTest.pro -spec win32-clang-g++ "LIBCLANG_ROOT=$clangRoot" "CONFIG+=release" "CONFIG-=debug_and_release"
 & "$qtRoot/Tools/mingw730_64/bin/mingw32-make.exe" -j2
-.\clangTest.exe
+.\StructHex.exe
 ```
 
 ## 解析结果
@@ -249,7 +251,7 @@ Set-Location build
 头文件在运行时解析，修改其内容后点击 **重新加载** 即可。也可以传入其他头文件，结构体名称会自动识别：
 
 ```powershell
-.\clangTest.exe C:/path/to/other.h
+.\StructHex.exe C:/path/to/other.h
 ```
 
 ## 回归检查
@@ -313,6 +315,6 @@ Qt Creator 中的配置方法见上文“在 Qt Creator 中运行”。仅链接
 
 安装路径不同时，可通过 `-QtRoot` 和 `-ClangRoot` 参数指定。脚本会构建 Release，部署 Qt、递归收集 DLL 依赖，并附带 C/C++ 标准库头文件、五个测试样例、程序源码和第三方许可文件。
 
-输出为 `dist/clangTest-windows-x64.zip`，校验文件为同目录下的 `.zip.sha256`。将 ZIP 作为 GitHub Release 附件上传即可。
+输出为 `dist/StructHex-windows-x64.zip`，校验文件为同目录下的 `.zip.sha256`。将 ZIP 作为 GitHub Release 附件上传即可。
 
-使用者只需完整解压，再双击 `clangTest.exe`，无需配置 Qt、Clang 或 PATH。程序会优先读取 `TestHeader/MsgHeader.h`，并使用 `runtime/` 内的标准库及 Clang 内置头文件进行解析。
+使用者只需完整解压，再双击 `StructHex.exe`，无需配置 Qt、Clang 或 PATH。程序会优先读取 `TestHeader/MsgHeader.h`，并使用 `runtime/` 内的标准库及 Clang 内置头文件进行解析。

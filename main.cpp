@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QIcon>
 #include "mainwindow.h"
 
 // 程序入口。阅读顺序：创建应用 → 确定头文件路径 → 创建窗口 → 进入事件循环。
@@ -8,6 +9,9 @@ int main(int argc, char *argv[])
 {
     // GUI 程序使用 QApplication；事件循环负责窗口显示和按钮响应。
     QApplication app(argc, argv);
+    app.setApplicationName(QStringLiteral("StructHex"));
+    app.setApplicationDisplayName(QStringLiteral("StructHex · 结构体数据编辑器"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/structhex.png")));
     // 便携包优先使用程序旁边的示例，不依赖构建时的本机源码路径。
     QString defaultPath = QDir(app.applicationDirPath()).filePath(QStringLiteral("TestHeader/MsgHeader.h"));
     if (!QFileInfo::exists(defaultPath))

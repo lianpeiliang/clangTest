@@ -522,7 +522,7 @@ void MainWindow::showHexImporter()
 MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     : QWidget(parent)
 {
-    setWindowTitle(QStringLiteral("结构定义编辑器"));
+    setWindowTitle(QStringLiteral("StructHex · 结构体数据编辑器"));
     resize(1360, 820);
 
     // QVBoxLayout 从上到下排列各行；每一行再用 QHBoxLayout 从左到右排列。

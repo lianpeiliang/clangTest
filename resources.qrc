@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="structhex.png">assets/structhex.png</file>
+    </qresource>
+</RCC>

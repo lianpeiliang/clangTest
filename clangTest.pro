@@ -2,9 +2,13 @@
 QT += core gui widgets
 
 TEMPLATE = app
-TARGET = clangTest
+TARGET = StructHex
 CONFIG += c++11
 CONFIG -= console app_bundle
+
+# Windows 可执行文件图标，以及窗口/任务栏使用的内嵌图标资源。
+win32:RC_ICONS = $$PWD/assets/structhex.ico
+RESOURCES += $$PWD/resources.qrc
 
 # SOURCES 中的 .cpp 会参与编译；HEADERS 列出头文件，便于 Qt Creator 展示和项目管理。
 SOURCES += main.cpp headerparser.cpp mainwindow.cpp fieldvalue.cpp binaryencoder.cpp binarydecoder.cpp definitionjson.cpp
