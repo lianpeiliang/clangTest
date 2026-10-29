@@ -184,12 +184,16 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     resize(1440, 900);
     setMinimumSize(1040, 640);
 
-    // QVBoxLayout 从上到下排列各行；每一行再用 QHBoxLayout 从左到右排列。
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(12, 10, 12, 12);
-    layout->setSpacing(12);
+    // 外层不留边距，标题栏贴齐窗口；内容区独立保留控件间距。
+    auto *windowLayout = new QVBoxLayout(this);
+    windowLayout->setContentsMargins(0, 0, 0, 0);
+    windowLayout->setSpacing(0);
+    windowLayout->addWidget(createTitleBar());
 
-    layout->addWidget(createTitleBar());
+    auto *layout = new QVBoxLayout;
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(12);
+    windowLayout->addLayout(layout, 1);
 
     m_definitionPanel = new DefinitionPanel(filePath, this);
     layout->addWidget(m_definitionPanel);
