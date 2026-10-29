@@ -27,3 +27,6 @@ LIBS += "$$LIBCLANG_ROOT/lib/libclang.dll.a"
 # 将工具链目录及默认待解析头文件路径作为字符串宏传入程序。
 DEFINES += LIBCLANG_ROOT=\\\"$$LIBCLANG_ROOT\\\"
 DEFINES += MSG_HEADER_PATH=\\\"$$PWD/TestHeader/MsgHeader.h\\\"
+
+SOURCES += framelesswindow.cpp hexdialogs.cpp
+HEADERS += framelesswindow.h hexdialogs.h

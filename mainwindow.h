@@ -1,7 +1,7 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QWidget>
+#include "framelesswindow.h"
 #include <QHash>
 #include "headerparser.h"
 
@@ -13,13 +13,11 @@ class QPlainTextEdit;
 class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
-class QFrame;
-class QShowEvent;
-class QEvent;
+class HexDialogs;
 
 // 主窗口负责接收操作、展示结构体和管理输入值；解析及数据转换由其他模块完成。
-// QWidget 是 Qt 窗口/控件的基类，MainWindow 在它的基础上组合输入框、按钮和树形控件。
-class MainWindow : public QWidget
+// 继承 FramelessWindow 以复用标题栏与系统窗口行为，十六进制弹窗交给 HexDialogs 管理。
+class MainWindow : public FramelessWindow
 {
 public:
     // 创建界面并首次加载 filePath（头文件或结构定义 JSON）；parent 是可选的 Qt 父控件。
@@ -32,15 +30,8 @@ public:
     // 当前是否有无效输入；返回 true 时，“查看二进制”按钮不可用。
     bool hasInvalidFieldValues() const { return !m_valueErrors.isEmpty(); }
 
-protected:
-    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
-    void showEvent(QShowEvent *event) override;
-    void changeEvent(QEvent *event) override;
-
 private:
-    QFrame *m_titleBar = nullptr;
-    QPushButton *m_maximizeButton = nullptr;
-    void updateWindowControls();
+    HexDialogs *m_hexDialogs; // 弹窗管理器；以本窗口为 Qt 父对象，随窗口一起销毁。
     // 加载文件，更新结构体候选列表；随后显示当前选中项。
     void reloadDefinition();
 
@@ -103,8 +94,6 @@ private:
     bool m_jsonMode = false;         // true：从 JSON 读取；false：用 libclang 解析头文件。
     QString m_headerPath;           // 上次选择的头文件路径，便于从 JSON 切回时恢复选择。
     QString m_headerStructName;     // 上次在该头文件中选中的结构体名称。
-    QString m_lastHexInput;         // 只在当前窗口内存中记住上次的十六进制输入。
-    int m_lastHexByteOrder = 0;      // 上次解码的字节序下拉框下标：0 为小端，1 为大端。
 };
 
 #endif
