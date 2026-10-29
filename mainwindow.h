@@ -13,6 +13,9 @@ class QPlainTextEdit;
 class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QFrame;
+class QShowEvent;
+class QEvent;
 
 // 主窗口负责接收操作、展示结构体和管理输入值；解析及数据转换由其他模块完成。
 // QWidget 是 Qt 窗口/控件的基类，MainWindow 在它的基础上组合输入框、按钮和树形控件。
@@ -29,7 +32,15 @@ public:
     // 当前是否有无效输入；返回 true 时，“查看二进制”按钮不可用。
     bool hasInvalidFieldValues() const { return !m_valueErrors.isEmpty(); }
 
+protected:
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
+    void showEvent(QShowEvent *event) override;
+    void changeEvent(QEvent *event) override;
+
 private:
+    QFrame *m_titleBar = nullptr;
+    QPushButton *m_maximizeButton = nullptr;
+    void updateWindowControls();
     // 加载文件，更新结构体候选列表；随后显示当前选中项。
     void reloadDefinition();
 

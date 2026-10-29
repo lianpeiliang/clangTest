@@ -20,6 +20,21 @@ QLabel#brandBadge {
     padding: 7px 14px;
     font-weight: 600;
 }
+QFrame#brandHeader QPushButton {
+    color: white;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0;
+    min-height: 0;
+    font-family: "Segoe UI", "Microsoft YaHei UI";
+    font-size: 20px;
+}
+QFrame#brandHeader QPushButton:hover { background: rgba(255, 255, 255, 42); }
+QFrame#brandHeader QPushButton:pressed { background: rgba(255, 255, 255, 65); }
+QFrame#brandHeader QPushButton:focus { border: 1px solid #EAD8FA; }
+QFrame#brandHeader QPushButton#closeWindowButton:hover { background: #D94865; }
+QFrame#brandHeader QPushButton#closeWindowButton:pressed { background: #BC304C; }
 QFrame#definitionPanel {
     background-color: white;
     border: 1px solid #E8E0F0;
