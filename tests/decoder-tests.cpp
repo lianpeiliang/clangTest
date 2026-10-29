@@ -3,8 +3,10 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QEvent>
 #include <QFile>
 #include <QFontDatabase>
@@ -188,11 +190,116 @@ int main(int argc, char **argv)
     dialog = window.findChild<QDialog *>("hexDecodeDialog");
     CHECK(dialog && dialog->findChild<QPlainTextEdit *>("hexDecodeInput")->toPlainText() == "GG");
     dialog->close();
+    app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+    // 直接导入：错误或取消均保留原值，成功后立即更新当前编辑控件。
+    auto *importData = window.findChild<QPushButton *>("importHexDataButton");
+    CHECK(importData && importData->isEnabled());
+    CHECK(importData->text() == QStringLiteral("导入16进制数据"));
+    sequence->setText("invalid");
+    CHECK(window.hasInvalidFieldValues() && importData->isEnabled());
+    importData->click();
+    auto *importDialog = window.findChild<QDialog *>("hexImportDialog");
+    CHECK(importDialog && importDialog->windowModality() == Qt::WindowModal);
+    auto *importInput = importDialog->findChild<QPlainTextEdit *>("hexImportInput");
+    auto *importButton = importDialog->findChild<QPushButton *>("importHexButton");
+    auto *importStatus = importDialog->findChild<QLabel *>("hexImportStatus");
+    CHECK(importInput && importButton && importStatus);
+    for (const QString &text : {"", "GG", "123", "78 56", "7856341222114433665500"}) {
+        importInput->setPlainText(text);
+        importButton->click();
+        CHECK(importDialog->isVisible() && !importStatus->text().isEmpty());
+        CHECK(window.fieldValues() == expected && window.hasInvalidFieldValues());
+        CHECK(sequence->text() == "invalid");
+    }
+    importInput->setPlainText("00000000000000000000");
+    importDialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+    CHECK(window.fieldValues() == expected && sequence->text() == "invalid");
+    app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    importData->click();
+    importDialog = window.findChild<QDialog *>("hexImportDialog");
+    CHECK(importDialog);
+    importInput = importDialog->findChild<QPlainTextEdit *>("hexImportInput");
+    importButton = importDialog->findChild<QPushButton *>("importHexButton");
+    importInput->setPlainText("0x78, 0X56, 34 12\n22 11 44 33 66 55");
+    app.processEvents();
+    if (app.arguments().size() > 2)
+        CHECK(importDialog->grab().save(app.arguments().at(2)));
+    importButton->click();
+    CHECK(!importDialog->isVisible() && window.fieldValues() == expected);
+    CHECK(!window.hasInvalidFieldValues() && sequence->text() == "305419896");
+    auto *destination = window.findChild<QLineEdit *>("fieldValue:address.destination");
+    CHECK(destination && destination->text() == "13124");
+    destination->setText("0x7788");
+    auto *binary = window.findChild<QPushButton *>("viewBinaryButton");
+    CHECK(binary && binary->isEnabled());
+    binary->click();
+    auto *preview = window.findChild<QDialog *>("binaryPreviewDialog");
+    CHECK(preview);
+    preview->findChild<QPushButton *>("copyHexButton")->click();
+    CHECK(QApplication::clipboard()->text() == "78 56 34 12 22 11 88 77 66 55");
+    preview->close();
+    app.sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    app.processEvents();
+    if (app.arguments().size() > 3)
+        CHECK(window.grab().save(app.arguments().at(3)));
+
+    // 导入完整的整数/浮点/布尔值，覆盖已有值并验证主界面与重新编码结果。
+    const QString valuesJson = temporary.path() + "/Values.json";
+    CHECK(saveStructureDefinitionJson(values.structure, valuesJson));
+    MainWindow valuesWindow(valuesJson);
+    valuesWindow.show();
+    auto *active = valuesWindow.findChild<QComboBox *>("fieldValue:active");
+    CHECK(active && active->currentText() == "false");
+    valuesWindow.findChild<QPushButton *>("importHexDataButton")->click();
+    auto *valuesDialog = valuesWindow.findChild<QDialog *>("hexImportDialog");
+    CHECK(valuesDialog);
+    valuesDialog->findChild<QPlainTextEdit *>("hexImportInput")->setPlainText(QString::fromLatin1(encoded.bytes.toHex()));
+    valuesDialog->findChild<QPushButton *>("importHexButton")->click();
+    CHECK(!valuesDialog->isVisible() && valuesWindow.fieldValues() == limits);
+    CHECK(active->currentText() == "true" && !valuesWindow.hasInvalidFieldValues());
+    CHECK(encodeStructure(values.structure, valuesWindow.fieldValues()).bytes == encoded.bytes);
+
+    // 非有限值不能只导入一部分，否则主界面会混合旧值和导入值。
+    const QString floatsJson = temporary.path() + "/Floats.json";
+    CHECK(saveStructureDefinitionJson(floats.structure, floatsJson));
+    MainWindow floatsWindow(floatsJson);
+    floatsWindow.show();
+    const auto originalFloats = floatsWindow.fieldValues();
+    floatsWindow.findChild<QPushButton *>("importHexDataButton")->click();
+    auto *floatsDialog = floatsWindow.findChild<QDialog *>("hexImportDialog");
+    CHECK(floatsDialog);
+    floatsDialog->findChild<QPlainTextEdit *>("hexImportInput")->setPlainText("0000c03f000000000000f07f");
+    floatsDialog->findChild<QPushButton *>("importHexButton")->click();
+    CHECK(floatsDialog->isVisible() && floatsWindow.fieldValues() == originalFloats);
+    CHECK(floatsDialog->findChild<QLabel *>("hexImportStatus")->text().contains("real"));
+    floatsDialog->reject();
+
+    // 重载会关闭导入窗口；立即再次导入应更新新树，而非待销毁的旧控件。
+    importData->click();
+    importDialog = window.findChild<QDialog *>("hexImportDialog");
+    CHECK(importDialog && importDialog->isVisible());
+    window.findChild<QPushButton *>("reloadDefinitionButton")->click();
+    CHECK(!importDialog->isVisible());
+    importData->click();
+    importDialog = window.findChildren<QDialog *>("hexImportDialog").last();
+    CHECK(importDialog);
+    importDialog->findChild<QPlainTextEdit *>("hexImportInput")->setPlainText(QString::fromLatin1(known.toHex()));
+    importDialog->findChild<QPushButton *>("importHexButton")->click();
+    CHECK(window.fieldValues() == expected);
+    auto *fields = window.findChild<QTreeWidget *>("fieldsTree");
+    auto *currentDestination = qobject_cast<QLineEdit *>(fields->itemWidget(
+        fields->topLevelItem(0)->child(1)->child(1), 1));
+    CHECK(currentDestination && currentDestination->text() == "13124");
+    importData->click();
+    // 不处理延迟销毁前，直接改变来源；所有导入窗口均应关闭。
     auto *source = window.findChild<QLineEdit *>("headerFilePath");
     source->setText(temporary.path() + "/missing.json");
     CHECK(QMetaObject::invokeMethod(source, "returnPressed"));
-    CHECK(!open->isEnabled());
+    CHECK(!open->isEnabled() && !importData->isEnabled());
+    for (auto *child : window.findChildren<QDialog *>("hexImportDialog"))
+        CHECK(!child->isVisible());
     QTextStream(stdout) << "PASS: strict hex, endian, nested/JSON, padding, integer limits, signed bitfields, "
-                          "floating values, raw arrays/pointers, layout errors and decode/apply UI\n";
+                          "floating values, raw arrays/pointers, layout errors, decode/apply and direct import/edit UI\n";
     return 0;
 }

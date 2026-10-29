@@ -23,6 +23,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 #include <functional>
 #include <memory>
@@ -318,19 +319,106 @@ void MainWindow::showHexDecoder()
                         .arg(hex.bytes.size()).arg(values->size()));
     });
     connect(apply, &QPushButton::clicked, dialog, [this, values, status] {
-        for (auto it = values->cbegin(); it != values->cend(); ++it) {
-            const QString name = QStringLiteral("fieldValue:") + it.key();
-            // setText()/setCurrentText() 会触发原编辑控件的信号，复用已有的值更新逻辑。
-            if (auto *editor = m_fields->findChild<QLineEdit *>(name))
-                editor->setText(it.value());
-            else if (auto *combo = m_fields->findChild<QComboBox *>(name))
-                combo->setCurrentText(it.value());
-        }
-        updateValueStatus();
+        applyDecodedValues(*values);
         status->setText(QStringLiteral("已将 %1 个解析值填入主窗口。仅更新字段值；数组和填充字节不会保留，二进制预览使用目标小端序。").arg(values->size()));
     });
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     dialog->show();
+}
+
+void MainWindow::applyDecodedValues(const QHash<QString, QString> &values)
+{
+    // 只遍历当前树，避免命中重载后等待延迟销毁的旧编辑控件。
+    for (QTreeWidgetItemIterator it(m_fields); *it; ++it) {
+        const auto value = values.constFind((*it)->toolTip(0));
+        if (value == values.cend())
+            continue;
+        QWidget *widget = m_fields->itemWidget(*it, 1);
+        // 设置控件值会触发原来的输入信号，同时刷新内存值和错误提示。
+        if (auto *editor = qobject_cast<QLineEdit *>(widget))
+            editor->setText(value.value());
+        else if (auto *combo = qobject_cast<QComboBox *>(widget))
+            combo->setCurrentText(value.value());
+    }
+    updateValueStatus();
+}
+
+void MainWindow::showHexImporter()
+{
+    if (!m_hasStructure)
+        return;
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("hexImportDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setWindowTitle(QStringLiteral("导入16进制数据：%1").arg(m_parsedStructure.name));
+    dialog->resize(760, 440);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *summary = new QLabel(QStringLiteral(
+        "导入到 %1：请输入完整的 %2 字节（含填充），按当前目标的小端序读取。\n"
+        "支持连续十六进制、空格/换行/逗号分隔及 0x 前缀。可直接粘贴“复制十六进制”的内容，不含偏移地址。\n"
+        "导入后替换可编辑字段的值，可继续在主界面修改。只读字段和填充字节不保存，再次生成二进制时按现有规则处理。")
+        .arg(m_parsedStructure.name).arg(m_parsedStructure.size), dialog);
+    summary->setTextFormat(Qt::PlainText);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+    auto *input = new QPlainTextEdit(dialog);
+    input->setObjectName(QStringLiteral("hexImportInput"));
+    input->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    input->setPlaceholderText(QStringLiteral("例如：78 56 34 12 22 11 44 33 66 55"));
+    input->setPlainText(m_lastHexInput);
+    layout->addWidget(input, 1);
+    auto *status = new QLabel(dialog);
+    status->setObjectName(QStringLiteral("hexImportStatus"));
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(status);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("导入"));
+    buttons->button(QDialogButtonBox::Ok)->setObjectName(QStringLiteral("importHexButton"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+    connect(input, &QPlainTextEdit::textChanged, dialog, [this, input, status] {
+        m_lastHexInput = input->toPlainText();
+        status->clear();
+    });
+    const StructInfo structure = m_parsedStructure;
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, input, status, structure] {
+        const BinaryResult hex = parseHexBytes(input->toPlainText());
+        if (!hex.success) {
+            status->setText(hex.diagnostics.join(QLatin1Char('\n')));
+            return;
+        }
+        const DecodeResult result = decodeStructure(structure, hex.bytes);
+        if (!result.success) {
+            status->setText(result.diagnostics.join(QLatin1Char('\n')));
+            return;
+        }
+        // 例如 NaN 可供解析预览，但不能导入编辑器；先检查全部字段，避免只导入一部分。
+        QStringList missing;
+        for (auto it = m_fieldValues.cbegin(); it != m_fieldValues.cend(); ++it) {
+            if (!result.editableValues.contains(it.key()))
+                missing.append(it.key());
+        }
+        if (!missing.isEmpty()) {
+            missing.sort();
+            status->setText(QStringLiteral("导入失败：%1 的值无法用于编辑（如 NaN 或无穷大）。当前字段值未修改，可使用“解析十六进制”查看详情。")
+                            .arg(missing.join(QStringLiteral("、"))));
+            return;
+        }
+        if (result.editableValues.isEmpty()) {
+            status->setText(QStringLiteral("当前结构体没有可导入的可编辑字段，可使用“解析十六进制”查看原始字节。"));
+            return;
+        }
+        applyDecodedValues(result.editableValues);
+        m_status->setText(QStringLiteral("已导入 %1 字节，更新 %2 个字段。可直接修改字段值，再点击“查看二进制”生成新数据。只读字段和填充字节未保存。")
+                          .arg(hex.bytes.size()).arg(result.editableValues.size()));
+        dialog->accept();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    dialog->show();
+    input->setFocus();
 }
 
 // 构造函数分三步：创建控件、用布局排列控件、连接信号；最后首次加载文件。
@@ -378,21 +466,29 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     auto *collapseButton = new QPushButton(QStringLiteral("全部折叠"), this);
     nameRow->addWidget(expandButton);
     nameRow->addWidget(collapseButton);
+    layout->addLayout(nameRow);
+    auto *actionRow = new QHBoxLayout;
     m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
     m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
     m_binaryButton->setEnabled(false);
     m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
-    nameRow->addWidget(m_binaryButton);
+    actionRow->addWidget(m_binaryButton);
+    m_importHexButton = new QPushButton(QStringLiteral("导入16进制数据"), this);
+    m_importHexButton->setObjectName(QStringLiteral("importHexDataButton"));
+    m_importHexButton->setEnabled(false);
+    m_importHexButton->setToolTip(QStringLiteral("粘贴已保存的小端十六进制数据，导入当前结构体后继续编辑字段值。"));
+    actionRow->addWidget(m_importHexButton);
     m_decodeButton = new QPushButton(QStringLiteral("解析十六进制…"), this);
     m_decodeButton->setObjectName(QStringLiteral("decodeHexButton"));
     m_decodeButton->setEnabled(false);
-    nameRow->addWidget(m_decodeButton);
+    actionRow->addWidget(m_decodeButton);
     m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
     m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
     m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
     m_exportDefinitionButton->setEnabled(false);
-    nameRow->addWidget(m_exportDefinitionButton);
-    layout->addLayout(nameRow);
+    actionRow->addWidget(m_exportDefinitionButton);
+    actionRow->addStretch();
+    layout->addLayout(actionRow);
 
     m_structureName = new QLabel(this);
     m_structureName->setObjectName(QStringLiteral("structureName"));
@@ -464,6 +560,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     connect(collapseButton, &QPushButton::clicked, m_fields, &QTreeWidget::collapseAll);
     connect(m_binaryButton, &QPushButton::clicked, this, [this] { showBinary(); });
     connect(m_decodeButton, &QPushButton::clicked, this, [this] { showHexDecoder(); });
+    connect(m_importHexButton, &QPushButton::clicked, this, [this] { showHexImporter(); });
     connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
     connect(openButton, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
@@ -517,7 +614,9 @@ void MainWindow::reloadDefinition()
 // 将当前候选应用到界面：下拉框下标与 m_structures 中的下标一一对应。
 void MainWindow::showSelectedStructure()
 {
-    if (auto *dialog = findChild<QDialog *>(QStringLiteral("hexDecodeDialog")))
+    for (auto *dialog : findChildren<QDialog *>(QStringLiteral("hexDecodeDialog")))
+        dialog->close();
+    for (auto *dialog : findChildren<QDialog *>(QStringLiteral("hexImportDialog")))
         dialog->close();
     const int index = m_structName->currentIndex();
     ParseResult result;
@@ -549,6 +648,7 @@ void MainWindow::showSelectedStructure()
     m_parseDiagnostics = result.diagnostics;
     m_binaryButton->setEnabled(false);
     m_decodeButton->setEnabled(false);
+    m_importHexButton->setEnabled(false);
     m_exportDefinitionButton->setEnabled(false);
     m_diagnostics->setPlainText(result.diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!result.diagnostics.isEmpty());
@@ -563,6 +663,7 @@ void MainWindow::showSelectedStructure()
     m_parsedStructure = structure;
     m_hasStructure = true;
     m_decodeButton->setEnabled(true);
+    m_importHexButton->setEnabled(true);
     m_exportDefinitionButton->setEnabled(true);
     m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
