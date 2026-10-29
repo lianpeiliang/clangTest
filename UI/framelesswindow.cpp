@@ -144,8 +144,19 @@ bool FramelessWindow::nativeEvent(const QByteArray &eventType, void *message, lo
 {
 #ifdef Q_OS_WIN
     auto *msg = static_cast<MSG *>(message);
-    if (msg->message == WM_NCCALCSIZE && msg->wParam) {
-        *result = 0; // 保留系统窗口操作能力，客户区覆盖原来的系统标题栏。
+    if (msg->message == WM_NCCALCSIZE) {
+        // 两种参数形式均保留完整客户区，避免重新计算时挤出系统边框。
+        *result = 0;
+        return true;
+    }
+    if (msg->message == WM_NCACTIVATE && !IsIconic(msg->hwnd)) {
+        // 保留系统激活状态处理，-1 禁止 DefWindowProc 重画原生标题栏和边框。
+        *result = static_cast<long>(DefWindowProc(msg->hwnd, msg->message, msg->wParam, -1));
+        return true;
+    }
+    if (msg->message == WM_NCPAINT && !IsIconic(msg->hwnd)) {
+        // 标题栏与边缘已由 Qt 绘制，阻止系统覆盖它们。
+        *result = 0;
         return true;
     }
     if (msg->message == WM_GETMINMAXINFO) {

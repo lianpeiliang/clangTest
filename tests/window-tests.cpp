@@ -4,6 +4,7 @@
 #include <QFrame>
 #include <QPushButton>
 #include <QTextStream>
+#include <QKeyEvent>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <windowsx.h>
@@ -37,6 +38,33 @@ int main(int argc, char **argv)
     CHECK((style & WS_THICKFRAME) && (style & WS_MAXIMIZEBOX) && (style & WS_MINIMIZEBOX));
     RECT rect;
     CHECK(GetWindowRect(handle, &rect));
+    // WM_NCCALCSIZE 的简化形式也必须保留整块客户区，不能回退到系统边框。
+    RECT calculated = rect;
+    SendMessage(handle, WM_NCCALCSIZE, FALSE, reinterpret_cast<LPARAM>(&calculated));
+    CHECK(EqualRect(&calculated, &rect));
+    const QRect titleGeometry = title->geometry();
+    CHECK(titleGeometry.topLeft() == QPoint(0, 0));
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        SendMessage(handle, WM_NCACTIVATE, FALSE, 0);
+        SendMessage(handle, WM_NCACTIVATE, TRUE, 0);
+        SendMessage(handle, WM_NCPAINT, 1, 0);
+        SetWindowPos(handle, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_Tab, Qt::ControlModifier);
+        QApplication::sendEvent(&window, &press);
+        QKeyEvent release(QEvent::KeyRelease, Qt::Key_Tab, Qt::ControlModifier);
+        QApplication::sendEvent(&window, &release);
+        app.processEvents();
+        CHECK(title->geometry() == titleGeometry);
+        RECT client;
+        CHECK(GetClientRect(handle, &client));
+        POINT origin = {0, 0};
+        CHECK(ClientToScreen(handle, &origin));
+        RECT outer;
+        CHECK(GetWindowRect(handle, &outer));
+        CHECK(origin.x == outer.left && origin.y == outer.top);
+        CHECK(client.right == outer.right - outer.left && client.bottom == outer.bottom - outer.top);
+    }
     auto hit = [&](int x, int y) {
         MSG message = {};
         message.hwnd = handle;
