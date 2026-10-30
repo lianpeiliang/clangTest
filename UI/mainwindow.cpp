@@ -51,7 +51,7 @@ void MainWindow::showBinary()
     }
     m_diagnostics->setPlainText(m_session.diagnostics().join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!m_session.diagnostics().isEmpty());
-    m_status->setText(QStringLiteral("已生成 %1 字节的二进制预览。修改值后请重新点击“查看二进制”。")
+    m_status->setText(QStringLiteral("已生成 %1 字节的二进制预览。修改值后请重新点击“查看16进制”。")
                           .arg(result.bytes.size()));
 
     m_hexDialogs->showPreview(m_session.structure(), result.bytes, m_session.loadedPath());
@@ -122,7 +122,7 @@ bool MainWindow::importHexText(const QString &text, QString &error)
     }
     m_fieldEditor->applyValues(result.editableValues);
     m_hexDialogs->rememberInput(text);
-    m_status->setText(QStringLiteral("已导入 %1 字节，更新 %2 个字段。可直接修改字段值，再点击“查看二进制”生成新数据。只读字段和填充字节未保存。")
+    m_status->setText(QStringLiteral("已导入 %1 字节，更新 %2 个字段。可直接修改字段值，再点击“查看16进制”生成新数据。只读字段和填充字节未保存。")
                       .arg(hex.bytes.size()).arg(result.editableValues.size()));
     return true;
 }
@@ -198,6 +198,7 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     m_definitionPanel = new DefinitionPanel(filePath, this);
     layout->addWidget(m_definitionPanel);
     connect(m_definitionPanel, &DefinitionPanel::loadRequested, this, &MainWindow::reloadDefinition);
+    connect(m_definitionPanel, &DefinitionPanel::exportRequested, this, &MainWindow::exportDefinitionJson);
     connect(m_definitionPanel, &DefinitionPanel::structureSelected, this, [this](int index) {
         m_session.selectStructure(index);
         showSelectedStructure();
@@ -266,7 +267,6 @@ void MainWindow::showSelectedStructure()
     m_decodeButton->setEnabled(false);
     m_importHexButton->setEnabled(false);
     m_importHexFileButton->setEnabled(false);
-    m_exportDefinitionButton->setEnabled(false);
     m_diagnostics->setPlainText(diagnostics.join(QLatin1Char('\n')));
     m_diagnostics->setVisible(!diagnostics.isEmpty());
     if (!loaded) {
@@ -280,7 +280,6 @@ void MainWindow::showSelectedStructure()
     m_decodeButton->setEnabled(true);
     m_importHexButton->setEnabled(true);
     m_importHexFileButton->setEnabled(true);
-    m_exportDefinitionButton->setEnabled(true);
     m_valuesSource = source;
     // 结构体名来自 AST 查询结果，不是在界面中写死的显示文本。
     m_structureName->setText(QStringLiteral("结构体：%1").arg(structure.name));
@@ -298,7 +297,7 @@ QWidget *MainWindow::createActionPanel()
     auto *panel = new QWidget(this);
     auto *actionRow = new QHBoxLayout;
     actionRow->setContentsMargins(0, 0, 0, 0);
-    m_binaryButton = new QPushButton(QStringLiteral("查看二进制"), this);
+    m_binaryButton = new QPushButton(QStringLiteral("查看16进制"), this);
     m_binaryButton->setObjectName(QStringLiteral("viewBinaryButton"));
     m_binaryButton->setEnabled(false);
     m_binaryButton->setToolTip(QStringLiteral("按当前结构体布局生成十六进制快照。请先修正所有无效输入。"));
@@ -317,11 +316,6 @@ QWidget *MainWindow::createActionPanel()
     m_decodeButton->setObjectName(QStringLiteral("decodeHexButton"));
     m_decodeButton->setEnabled(false);
     actionRow->addWidget(m_decodeButton);
-    m_exportDefinitionButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
-    m_exportDefinitionButton->setObjectName(QStringLiteral("exportDefinitionButton"));
-    m_exportDefinitionButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
-    m_exportDefinitionButton->setEnabled(false);
-    actionRow->addWidget(m_exportDefinitionButton);
     actionRow->addStretch();
     panel->setLayout(actionRow);
 
@@ -329,6 +323,5 @@ QWidget *MainWindow::createActionPanel()
     connect(m_decodeButton, &QPushButton::clicked, this, [this] { showHexDecoder(); });
     connect(m_importHexButton, &QPushButton::clicked, this, [this] { showHexImporter(); });
     connect(m_importHexFileButton, &QPushButton::clicked, this, [this] { importHexFile(); });
-    connect(m_exportDefinitionButton, &QPushButton::clicked, this, [this] { exportDefinitionJson(); });
     return panel;
 }

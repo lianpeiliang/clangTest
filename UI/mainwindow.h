@@ -25,7 +25,7 @@ public:
     // 返回只读引用，调用方可以查看当前值，但不能通过此接口修改内部容器。
     const QHash<QString, QString> &fieldValues() const;
 
-    // 当前是否有无效输入；返回 true 时，“查看二进制”按钮不可用。
+    // 当前是否有无效输入；返回 true 时，“查看16进制”按钮不可用。
     bool hasInvalidFieldValues() const;
 
 private:
@@ -41,7 +41,7 @@ private:
     // 下拉切换只读取已缓存的解析结果，不重新调用 libclang。
     void showSelectedStructure();
 
-    // 根据结构体是否已加载和编辑区是否合法，更新“查看二进制”按钮。
+    // 根据结构体是否已加载和编辑区是否合法，更新“查看16进制”按钮。
     void updateValueStatus();
 
     // 编码当前字段值，弹窗显示十六进制快照，并提供复制和导出文件按钮。
@@ -68,11 +68,10 @@ private:
     QLabel *m_status;           // 主操作状态提示，例如加载、导出或生成预览的结果。
     QPlainTextEdit *m_diagnostics; // 错误和警告的详细文本区域，只读显示。
     QString m_valuesSource;               // 文件路径 + 结构体名，用于判断旧值能否复用。
-    QPushButton *m_binaryButton;           // “查看二进制”按钮，需有结构体且输入全部合法。
+    QPushButton *m_binaryButton;           // “查看16进制”按钮，需有结构体且输入全部合法。
     QPushButton *m_decodeButton;           // “解析十六进制”按钮，加载结构体成功后可用。
     QPushButton *m_importHexButton;        // “导入16进制数据”按钮，允许覆盖当前无效输入。
     QPushButton *m_importHexFileButton;    // “从文件导入16进制数据”按钮，需先加载结构体。
-    QPushButton *m_exportDefinitionButton; // “导出结构定义 JSON”按钮，不要求字段输入值全部合法。
 };
 
 #endif

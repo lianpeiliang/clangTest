@@ -33,17 +33,20 @@ int main(int argc, char **argv)
     selectorBar.findChild<QComboBox *>("structSelector")->setCurrentIndex(0);
     CHECK(standaloneSelections == 1);
     DefinitionPanel panel(QStringLiteral("initial.h"));
-    int loads = 0, selections = 0, expands = 0, collapses = 0;
+    int loads = 0, selections = 0, expands = 0, collapses = 0, exports = 0;
     int selected = -1;
     QString requestedPath;
     QObject::connect(&panel, &DefinitionPanel::loadRequested, [&](const QString &path) { ++loads; requestedPath = path; });
     QObject::connect(&panel, &DefinitionPanel::structureSelected, [&](int index) { ++selections; selected = index; });
     QObject::connect(&panel, &DefinitionPanel::expandRequested, [&] { ++expands; });
     QObject::connect(&panel, &DefinitionPanel::collapseRequested, [&] { ++collapses; });
+    QObject::connect(&panel, &DefinitionPanel::exportRequested, [&] { ++exports; });
     auto *path = panel.findChild<QLineEdit *>("headerFilePath");
     auto *selector = panel.findChild<QComboBox *>("structSelector");
     auto *source = panel.findChild<QLabel *>("definitionSourceInfo");
     CHECK(path && selector && source && path->text() == "initial.h");
+    auto *exportButton = panel.findChild<QPushButton *>("exportDefinitionButton");
+    CHECK(exportButton && !exportButton->isEnabled());
     path->setText("not-loaded.h");
     CHECK(loads == 0); // 编辑路径只改变界面，确认前不发起加载。
     panel.findChild<QPushButton *>("reloadDefinitionButton")->click();
@@ -56,6 +59,9 @@ int main(int argc, char **argv)
     CHECK(selections == 1 && selected == 1);
     panel.setSourceState(false, true);
     CHECK(source->text().contains(QStringLiteral("2 个结构体")));
+    CHECK(exportButton->isEnabled());
+    exportButton->click();
+    CHECK(exports == 1 && loads == 2); // 导出当前定义，不重新加载尚未确认的路径。
     panel.setDefinitions({"Saved"}, 0, true);
     CHECK(selections == 1 && !selector->isEnabled() && selector->currentText() == "Saved");
     panel.setSourceState(true, true);
@@ -64,6 +70,7 @@ int main(int argc, char **argv)
     panel.setSourceState(false, false);
     CHECK(selections == 1 && selector->count() == 0 && !selector->isEnabled());
     CHECK(source->text().contains(QStringLiteral("加载失败")));
+    CHECK(!exportButton->isEnabled());
     panel.findChild<QPushButton *>("expandFieldsButton")->click();
     panel.findChild<QPushButton *>("collapseFieldsButton")->click();
     CHECK(expands == 1 && collapses == 1);

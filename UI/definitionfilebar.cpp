@@ -16,12 +16,18 @@ DefinitionFileBar::DefinitionFileBar(const QString &filePath, QWidget *parent) :
     m_filePath->setObjectName(QStringLiteral("headerFilePath"));
     m_filePath->setPlaceholderText(QStringLiteral("输入头文件或结构定义 JSON 路径，按回车加载"));
     row->addWidget(m_filePath, 1);
-    auto *openButton = new QPushButton(QStringLiteral("打开结构定义…"), this);
+    auto *openButton = new QPushButton(QStringLiteral("打开结构定义"), this);
     openButton->setObjectName(QStringLiteral("openDefinitionButton"));
     auto *reloadButton = new QPushButton(QStringLiteral("重新加载"), this);
     reloadButton->setObjectName(QStringLiteral("reloadDefinitionButton"));
     row->addWidget(openButton);
     row->addWidget(reloadButton);
+    m_exportButton = new QPushButton(QStringLiteral("导出结构定义 JSON"), this);
+    m_exportButton->setObjectName(QStringLiteral("exportDefinitionButton"));
+    m_exportButton->setToolTip(QStringLiteral("导出当前解析的类型和布局，不包含输入值；无需填写字段值。"));
+    m_exportButton->setEnabled(false);
+    row->addWidget(m_exportButton);
+    connect(m_exportButton, &QPushButton::clicked, this, &DefinitionFileBar::exportRequested);
     connect(reloadButton, &QPushButton::clicked, this, [this] { emit loadRequested(m_filePath->text()); });
     connect(m_filePath, &QLineEdit::returnPressed, this, [this] { emit loadRequested(m_filePath->text()); });
     connect(openButton, &QPushButton::clicked, this, [this] {
@@ -33,4 +39,9 @@ DefinitionFileBar::DefinitionFileBar(const QString &filePath, QWidget *parent) :
             emit loadRequested(path);
         }
     });
+}
+
+void DefinitionFileBar::setExportEnabled(bool enabled)
+{
+    m_exportButton->setEnabled(enabled);
 }
