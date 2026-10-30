@@ -1,4 +1,6 @@
 #include "UI/definitionpanel.h"
+#include "UI/definitionfilebar.h"
+#include "UI/structureselectorbar.h"
 #include "UI/theme.h"
 #include <QApplication>
 #include <QComboBox>
@@ -13,6 +15,23 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     applyApplicationTheme(app);
+    // 子组件可独立使用，各自完成操作请求和静默候选刷新。
+    DefinitionFileBar fileBar(QStringLiteral("standalone.h"));
+    QString standalonePath;
+    QObject::connect(&fileBar, &DefinitionFileBar::loadRequested,
+                     [&](const QString &path) { standalonePath = path; });
+    fileBar.findChild<QLineEdit *>("headerFilePath")->setText("changed.h");
+    CHECK(standalonePath.isEmpty());
+    fileBar.findChild<QPushButton *>("reloadDefinitionButton")->click();
+    CHECK(standalonePath == "changed.h");
+    StructureSelectorBar selectorBar;
+    int standaloneSelections = 0;
+    QObject::connect(&selectorBar, &StructureSelectorBar::structureSelected,
+                     [&](int) { ++standaloneSelections; });
+    selectorBar.setDefinitions({"One", "Two"}, 1, false);
+    CHECK(selectorBar.count() == 2 && standaloneSelections == 0);
+    selectorBar.findChild<QComboBox *>("structSelector")->setCurrentIndex(0);
+    CHECK(standaloneSelections == 1);
     DefinitionPanel panel(QStringLiteral("initial.h"));
     int loads = 0, selections = 0, expands = 0, collapses = 0;
     int selected = -1;

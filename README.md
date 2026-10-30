@@ -18,7 +18,9 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 | `main.cpp` | 创建 QApplication，启动窗口 |
 | `UI/mainwindow.h / .cpp` | 协调结构定义加载、字段编辑区、操作按钮及解析诊断 |
 | `UI/fieldeditor.h / .cpp` | 独立字段编辑区，管理树形控件、输入值、校验和填回 |
-| `UI/definitionpanel.h / .cpp` | 文件路径、候选选择和来源提示，通过信号请求操作 |
+| `UI/definitionpanel.h / .cpp` | 组合文件操作栏、结构体选择栏和来源提示，统一转发操作信号 |
+| `UI/definitionfilebar.h / .cpp` | 定义文件路径输入、打开和重新加载 |
+| `UI/structureselectorbar.h / .cpp` | 结构体候选刷新、选择和展开/折叠操作 |
 | `UI/framelesswindow.h / .cpp` | 自定义标题栏、窗口按钮及 Windows 原生拖动、缩放、工作区处理 |
 | `UI/hexdialogs.h / .cpp` | 十六进制预览、复制/导出、解析与粘贴导入弹窗及输入记忆 |
 | `headerparser.h / .cpp` | 调用 libclang，返回结构体和字段的查询结果 |
@@ -51,7 +53,7 @@ StructHex 是一个使用 qmake（`.pro`）构建的 Qt Widgets 结构体数据�
 
 `StructureSession` 是不依赖 UI 的普通 C++ 类，统一管理头文件/JSON 来源、候选、当前选择、诊断，以及重载或切回头文件时的名称恢复。主窗口直接读取会话，不重复保存当前结构体和加载状态；字段输入仍由编辑区管理。`tests/session-tests.pro` 仅依赖 Qt Core，覆盖缓存切换、来源标识、选择恢复、布局失败隔离和加载失败后的状态清空。
 
-`DefinitionPanel` 独立持有路径输入框、结构体选择框和来源提示，处理打开文件、回车、重载、展开/折叠等界面操作；它不解析定义或持有会话，通过信号把请求交给主窗口协调。刷新候选时屏蔽选择信号，避免重复加载或填回。`tests/definitionpanel-tests.pro` 检查面板独立使用时的操作信号和静默刷新。
+`DefinitionPanel` 组合 `DefinitionFileBar`、`StructureSelectorBar` 和来源提示，通过信号把请求交给主窗口协调。文件操作栏管理路径输入、打开和重载，选择栏管理候选、选择和展开/折叠；两者均可独立使用，不解析定义或持有会话。刷新候选时屏蔽选择信号，避免重复加载或填回。`tests/definitionpanel-tests.pro` 检查子组件独立使用及面板组合后的操作信号和静默刷新。
 
 初次阅读可以先打开 `TestHeader/MinimalMsgHeader.h`，对照这个只有两个字段的样例，再按下面的顺序看源码：
 

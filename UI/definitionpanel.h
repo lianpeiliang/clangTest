@@ -5,10 +5,9 @@
 #include <QStringList>
 
 class QLabel;
-class QLineEdit;
-class QComboBox;
+class StructureSelectorBar;
 
-// 定义选择面板：只展示文件来源和结构体候选，通过信号请求操作，不解析文件。
+// 定义选择面板：组合文件操作栏、结构体选择栏及来源提示，对外统一转发操作信号。
 class DefinitionPanel : public QFrame
 {
     Q_OBJECT
@@ -26,8 +25,7 @@ signals:
     void collapseRequested();
 
 private:
-    QLineEdit *m_filePath;    // 用户输入的路径，未确认时不影响当前已加载定义。
-    QComboBox *m_structName; // 候选的显示和选择控件。
+    StructureSelectorBar *m_selector; // 候选管理交由选择栏，面板只负责组合和转发。
     QLabel *m_sourceInfo;   // 来源及加载状态说明。
 };
 

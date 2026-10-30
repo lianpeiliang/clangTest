@@ -17,3 +17,5 @@ HEADERS += $$PWD/../structuresession.h
 
 SOURCES += $$PWD/../UI/definitionpanel.cpp
 HEADERS += $$PWD/../UI/definitionpanel.h
+SOURCES += $$PWD/../UI/definitionfilebar.cpp $$PWD/../UI/structureselectorbar.cpp
+HEADERS += $$PWD/../UI/definitionfilebar.h $$PWD/../UI/structureselectorbar.h

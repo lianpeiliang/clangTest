@@ -38,3 +38,5 @@ HEADERS += structuresession.h
 
 SOURCES += UI/definitionpanel.cpp
 HEADERS += UI/definitionpanel.h
+SOURCES += UI/definitionfilebar.cpp UI/structureselectorbar.cpp
+HEADERS += UI/definitionfilebar.h UI/structureselectorbar.h
