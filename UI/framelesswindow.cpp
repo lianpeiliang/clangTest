@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QPainter>
+#include <QPainterPath>
 #include <QShowEvent>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -18,7 +19,7 @@ namespace {
 class WindowControlButton : public QPushButton
 {
 public:
-    enum Action { Minimize, Maximize, Close };
+    enum Action { Help, Minimize, Maximize, Close };
     WindowControlButton(Action action, QWidget *parent) : QPushButton(parent), m_action(action) {}
 
 protected:
@@ -31,7 +32,17 @@ protected:
         painter.setPen(QPen(Qt::white, 1.25, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
         const qreal x = -5;
         const qreal y = -5;
-        if (m_action == Minimize) {
+        if (m_action == Help) {
+            painter.drawEllipse(QPointF(0, 0), 7, 7);
+            QPainterPath question;
+            question.moveTo(-2.3, -2.4);
+            question.cubicTo(-2.3, -5, 2.6, -5, 2.6, -2.2);
+            question.cubicTo(2.6, -0.7, 0, -0.6, 0, 1.5);
+            painter.drawPath(question);
+            painter.setBrush(Qt::white);
+            painter.setPen(Qt::NoPen);
+            painter.drawEllipse(QPointF(0, 4), 0.8, 0.8);
+        } else if (m_action == Minimize) {
             painter.drawLine(QPointF(x, y + 5), QPointF(x + 10, y + 5));
         } else if (m_action == Close) {
             painter.drawLine(QPointF(x, y), QPointF(x + 10, y + 10));
@@ -84,6 +95,14 @@ QFrame *FramelessWindow::createTitleBar()
     badge->setObjectName(QStringLiteral("brandBadge"));
     brandRow->addWidget(badge);
     brandRow->addSpacing(12);
+    m_helpButton = new WindowControlButton(WindowControlButton::Help, brand);
+    m_helpButton->setObjectName(QStringLiteral("helpButton"));
+    m_helpButton->setToolTip(QStringLiteral("使用帮助（F1）"));
+    m_helpButton->setAccessibleName(QStringLiteral("使用帮助"));
+    m_helpButton->setAccessibleDescription(QStringLiteral("查看软件功能、数据流程和使用说明"));
+    m_helpButton->setFixedSize(28, 24);
+    brandRow->addWidget(m_helpButton);
+    brandRow->addSpacing(8);
     auto *minimize = new WindowControlButton(WindowControlButton::Minimize, brand);
     minimize->setObjectName(QStringLiteral("minimizeWindowButton"));
     minimize->setToolTip(QStringLiteral("最小化"));

@@ -18,6 +18,8 @@ HEADERS += headerparser.h fieldvalue.h binaryencoder.h binarydecoder.h definitio
 # 界面代码统一放在 UI/，数据解析与编解码模块保留在项目根目录。
 SOURCES += UI/mainwindow.cpp UI/framelesswindow.cpp UI/fieldeditor.cpp UI/hexdialogs.cpp UI/theme.cpp
 HEADERS += UI/mainwindow.h UI/framelesswindow.h UI/fieldeditor.h UI/hexdialogs.h UI/theme.h
+SOURCES += UI/helpdialog.cpp
+HEADERS += UI/helpdialog.h
 HEADERS += TestHeader/MsgHeader.h TestHeader/SimpleMsgHeader.h TestHeader/MinimalMsgHeader.h \
            TestHeader/PacketHeader.h TestHeader/NestedPacketHeader.h TestHeader/MultiStructHeader.h
 

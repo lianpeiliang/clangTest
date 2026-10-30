@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "hexdialogs.h"
+#include "helpdialog.h"
 #include "fieldeditor.h"
 #include "definitionpanel.h"
 #include "headerparser.h"
@@ -16,6 +17,7 @@
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QShortcut>
 #include <QVBoxLayout>
 
 // 界面层的数据流：加载文件 → 得到候选结构体 → 选择一项 → 显示字段树 → 编辑/预览/导出。
@@ -189,6 +191,9 @@ MainWindow::MainWindow(const QString &filePath, QWidget *parent)
     windowLayout->setContentsMargins(0, 0, 0, 0);
     windowLayout->setSpacing(0);
     windowLayout->addWidget(createTitleBar());
+    connect(helpButton(), &QPushButton::clicked, this, [this] { showHelpDialog(this); });
+    auto *helpShortcut = new QShortcut(QKeySequence(Qt::Key_F1), this);
+    connect(helpShortcut, &QShortcut::activated, this, [this] { showHelpDialog(this); });
 
     auto *layout = new QVBoxLayout;
     layout->setContentsMargins(12, 12, 12, 12);

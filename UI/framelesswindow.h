@@ -19,6 +19,9 @@ protected:
     // 创建紫色标题栏及窗口按钮；派生类构建界面时调用一次，再加入自己的布局。
     QFrame *createTitleBar();
 
+    // 派生类连接帮助入口，帮助内容由具体应用提供。
+    QPushButton *helpButton() const { return m_helpButton; }
+
     // 处理 Windows 原生消息：确定拖动/缩放区域，并限制最大化范围为显示器工作区。
     // 返回 true 表示消息已处理，result 保存交给系统的处理结果。
     bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
@@ -33,6 +36,7 @@ private:
     // 根据 isMaximized() 更新按钮显示及无障碍名称。
     void updateWindowControls();
     QFrame *m_titleBar = nullptr;           // 标题栏区域，用于原生鼠标命中判断。
+    QPushButton *m_helpButton = nullptr;
     QPushButton *m_maximizeButton = nullptr; // 同一个按钮承担最大化和还原操作。
 };
 

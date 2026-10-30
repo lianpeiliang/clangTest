@@ -8,6 +8,8 @@ HEADERS = $$PWD/../headerparser.h $$PWD/../UI/mainwindow.h $$PWD/../fieldvalue.h
 
 SOURCES += $$PWD/../UI/framelesswindow.cpp $$PWD/../UI/hexdialogs.cpp
 HEADERS += $$PWD/../UI/framelesswindow.h $$PWD/../UI/hexdialogs.h
+SOURCES += $$PWD/../UI/helpdialog.cpp
+HEADERS += $$PWD/../UI/helpdialog.h
 
 SOURCES += $$PWD/../UI/fieldeditor.cpp
 HEADERS += $$PWD/../UI/fieldeditor.h

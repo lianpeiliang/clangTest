@@ -191,3 +191,23 @@ QMenu { background: white; border: 1px solid #E2D6ED; padding: 5px; }
 QMenu::item { padding: 7px 20px; }
 QMenu::item:selected { background: #EEE3F9; color: #603A85; }
 QMenu::item:disabled { color: #AAA0B5; }
+
+/* Help pages share the main window's violet palette. */
+QLabel#helpTitle { color: #4F326E; font-size: 24px; font-weight: 600; }
+QLabel#helpSubtitle { color: #79658C; }
+QWidget#helpPage { background: #F7F4FB; }
+QFrame#helpCard { background: white; border: 1px solid #E8E0F0; border-radius: 10px; }
+QLabel#helpSectionTitle { color: #67418B; font-size: 14px; font-weight: 600; }
+QLabel#helpBody { color: #655572; font-size: 13px; }
+QLabel#helpFlowNode {
+    background: #F2EBF9; color: #593878; border: 1px solid #E1D2ED;
+    border-radius: 8px; padding: 12px 8px; font-size: 13px;
+}
+QLabel#helpFlowArrow { color: #A579C6; font-size: 22px; }
+QTabWidget#helpTabs::pane { border: 1px solid #E3D7ED; border-radius: 8px; }
+QTabWidget#helpTabs QTabBar::tab {
+    background: #EEE6F7; color: #79658C; padding: 9px 18px;
+    border-top-left-radius: 7px; border-top-right-radius: 7px; margin-right: 4px;
+}
+QTabWidget#helpTabs QTabBar::tab:selected { background: #8E56BE; color: white; }
+QTabWidget#helpTabs QTabBar::tab:hover:!selected { background: #E4D5F0; }

@@ -5,6 +5,9 @@
 #include <QPushButton>
 #include <QTextStream>
 #include <QKeyEvent>
+#include <QDialog>
+#include <QScrollArea>
+#include <QTabWidget>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <windowsx.h>
@@ -30,7 +33,8 @@ int main(int argc, char **argv)
     auto *maximize = window.findChild<QPushButton *>("maximizeWindowButton");
     auto *minimize = window.findChild<QPushButton *>("minimizeWindowButton");
     auto *close = window.findChild<QPushButton *>("closeWindowButton");
-    CHECK(title && maximize && minimize && close);
+    auto *help = window.findChild<QPushButton *>("helpButton");
+    CHECK(title && maximize && minimize && close && help);
 #ifdef Q_OS_WIN
     CHECK(QApplication::platformName() == "windows");
     const HWND handle = reinterpret_cast<HWND>(window.winId());
@@ -90,7 +94,7 @@ int main(int argc, char **argv)
     };
     const QPoint drag = nativePoint(title->geometry().center());
     CHECK(hit(drag.x(), drag.y()) == HTCAPTION);
-    for (auto *button : {maximize, minimize, close}) {
+    for (auto *button : {help, maximize, minimize, close}) {
         const QPoint point = nativePoint(button->mapTo(&window, button->rect().center()));
         CHECK(hit(point.x(), point.y()) == HTCLIENT);
     }
@@ -116,10 +120,45 @@ int main(int argc, char **argv)
     CHECK(window.isMinimized());
     window.showNormal();
     app.processEvents();
+    const auto valuesBeforeHelp = window.fieldValues();
+    help->click();
+    app.processEvents();
+    auto *helpDialog = window.findChild<QDialog *>("helpDialog");
+    CHECK(helpDialog && helpDialog->isVisible() && !helpDialog->isModal());
+    help->click();
+    CHECK(window.findChildren<QDialog *>("helpDialog").size() == 1);
+    auto *tabs = helpDialog->findChild<QTabWidget *>("helpTabs");
+    CHECK(tabs && tabs->count() == 3);
+    for (int i = 0; i < tabs->count(); ++i) {
+        tabs->setCurrentIndex(i);
+        app.processEvents();
+        if (app.arguments().size() > 2)
+            CHECK(helpDialog->grab().save(app.arguments().at(2).arg(i)));
+        // 小窗口下由页面纵向滚动，流程节点不能挤出页面宽度。
+        helpDialog->resize(640, 420);
+        app.processEvents();
+        auto *scroll = qobject_cast<QScrollArea *>(tabs->currentWidget());
+        CHECK(scroll && scroll->widget()->width() <= scroll->viewport()->width());
+        helpDialog->resize(880, 760);
+    }
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(helpDialog, &escape);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    CHECK(!window.findChild<QDialog *>("helpDialog"));
+    window.activateWindow();
+    app.processEvents();
+    QKeyEvent helpKey(QEvent::KeyPress, Qt::Key_F1, Qt::NoModifier);
+    QApplication::sendEvent(&window, &helpKey);
+    app.processEvents();
+    helpDialog = window.findChild<QDialog *>("helpDialog");
+    CHECK(helpDialog && helpDialog->isVisible());
+    CHECK(window.fieldValues() == valuesBeforeHelp);
+    helpDialog->close();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     if (app.arguments().size() > 1)
         CHECK(window.grab().save(app.arguments().at(1)));
     close->click();
     CHECK(!window.isVisible());
-    QTextStream(stdout) << "PASS: custom title, native drag/resize hit tests, controls, double click, taskbar bounds and restore\n";
+    QTextStream(stdout) << "PASS: native title/controls, help hit target, help lifecycle, F1, responsive pages and unchanged field values\n";
     return 0;
 }
